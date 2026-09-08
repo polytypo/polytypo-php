@@ -1,10 +1,10 @@
 {
     "name": "polytypo/polytypo",
-    "description": "Locale-correct microtypography: quotes, dashes, ellipses, apostrophes, symbols and no-break spaces.",
+    "description": "Normalize typography across languages: quotes, dashes, ellipses, apostrophes, symbols and no-break spaces.",
     "type": "library",
     "license": "MIT",
     "homepage": "https://polytypo.dev/",
-    "keywords": ["typography", "i18n", "l10n", "unicode", "quotes", "microtypography"],
+    "keywords": ["typography", "i18n", "l10n", "unicode", "quotes", "normalize-typography"],
     "require": {
         "php": ">=8.2",
         "ext-mbstring": "*"

@@ -11,8 +11,8 @@ use Polytypo\Modes\Html;
 use Polytypo\Modes\Runner;
 
 /**
- * polytypo is locale-correct microtypography: quotes, dashes, ellipses, apostrophes, symbols and
- * no-break spaces, from a spec shared across every polytypo runtime
+ * polytypo normalizes typography across languages: locale-correct quotes, dashes, ellipses,
+ * apostrophes, symbols and no-break spaces, from a spec shared across every polytypo runtime
  * (github.com/polytypo/polytypo). See spec/CONFORMANCE.md there for exactly what this runtime
  * implements -- notably, `mode: "markdown"` is not implemented in this runtime (see the class
  * doc on that branch below).
