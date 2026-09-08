@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: PHP ${{ matrix.php-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ["8.2", "8.3", "8.4"]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: ${{ matrix.php-version }}
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Lint (PHP_CodeSniffer, PSR-12)
+        run: vendor/bin/phpcs
+
+      - name: Static analysis (PHPStan)
+        run: vendor/bin/phpstan analyse
+
+      - name: Test
+        run: vendor/bin/phpunit --testsuite=unit
+
+      # Builds the actual distributable archive (respecting .gitattributes export-ignore) and
+      # requires it from a fresh location -- a composer-install-in-place run against the working
+      # tree cannot catch a packaging defect like an export-ignore rule accidentally excluding
+      # resources/spec/.
+      - name: Packaging smoke test
+        run: bash script/packaging-smoke-test.sh

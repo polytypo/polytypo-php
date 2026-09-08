@@ -1,0 +1,15 @@
+parameters:
+    level: 8
+    paths:
+        - src
+        - tests
+        - script
+    excludePaths:
+        - tests/fixtures/*
+    # Every rule engine method takes $cp: an int[] code-point array, consistently, everywhere
+    # (docs/ARCHITECTURE.md section 4.2) -- annotating `@param int[] $cp` on every one of the
+    # several dozen small private scan/guard helpers across the 9 rule files would be busywork,
+    # not a correctness gain: the shape is uniform and well-understood project-wide, the same
+    # reasoning as the other ports' own lint-config exceptions for their engine code.
+    ignoreErrors:
+        - identifier: missingType.iterableValue

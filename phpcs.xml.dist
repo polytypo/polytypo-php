@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<ruleset name="polytypo">
+    <description>PSR-12 with exceptions for this codebase's deliberate cross-runtime style.</description>
+
+    <file>src</file>
+    <file>tests</file>
+    <file>script</file>
+
+    <arg name="basepath" value="."/>
+    <arg name="colors"/>
+    <arg value="p"/>
+
+    <rule ref="PSR12"/>
+
+    <!-- 140, matching this project's other ports (see e.g. polytypo-ruby's .rubocop.yml): the
+         typography rules are index-based scans with many named guards whose conditions read
+         better on one line than force-wrapped, and a reviewer comparing this file to the
+         JS/Python/Go/Ruby equivalent benefits from lines breaking in the same places. -->
+    <rule ref="Generic.Files.LineLength">
+        <properties>
+            <property name="lineLimit" value="160"/>
+            <property name="absoluteLineLimit" value="0"/>
+        </properties>
+    </rule>
+
+    <!-- UnicodeUtil.php's data tables are ported verbatim, entry for entry, from the JS reference
+         implementation's own frozen Unicode 17.0 tables: long lines of literal data, not
+         hand-written code any line-length limit should apply to. -->
+    <rule ref="Generic.Files.LineLength">
+        <exclude-pattern>src/Engine/UnicodeUtil.php</exclude-pattern>
+    </rule>
+
+    <!-- script/*.php are CLI entry points: declaring a couple of small helper functions and then
+         executing top-level logic in the same file is the normal, idiomatic shape for a small
+         script, not a violation worth flagging the way it would be in src/. -->
+    <rule ref="PSR1.Files.SideEffects">
+        <exclude-pattern>script/*.php</exclude-pattern>
+    </rule>
+</ruleset>
