@@ -13,3 +13,11 @@ parameters:
     # reasoning as the other ports' own lint-config exceptions for their engine code.
     ignoreErrors:
         - identifier: missingType.iterableValue
+        # Test helpers read fixed, trusted, repo-local fixture files (resources/spec/**) --
+        # file_get_contents()/sort() returning `false` on failure is a real concern for
+        # runtime code reading arbitrary paths (handled explicitly in src/), not for a test
+        # helper reading a fixture file that is guaranteed present in this repository.
+        - identifier: argument.type
+          path: tests/*
+        - identifier: missingType.generics
+          path: tests/*
