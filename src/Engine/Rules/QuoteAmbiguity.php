@@ -51,8 +51,10 @@ final class QuoteAmbiguity
     private const THIN_SPACE = 0x2009;
     private const HAIR_SPACE = 0x200A;
 
-    private const MIN_ENCLOSED = 1;
-    private const MAX_ENCLOSED = 3;
+    // quotes.md 3.2 -- the one code point the universal medial-n veto's span may enclose, in
+    // either case.
+    private const LOWER_N = 0x6E;
+    private const UPPER_N = 0x4E;
 
     private function __construct()
     {
@@ -282,13 +284,17 @@ final class QuoteAmbiguity
     }
 
     /**
-     * The general ambiguous-medial-span shape, locale-independent (quotes.md 3.2, spec 0.5.0): a
-     * pair of straight ASCII single quotes (U+0027 only) enclosing 1-3 LETTER code points, with
-     * at least one INLINE-SPACE code point immediately outside each mark. Both mark positions are
-     * returned for every match. A superset of computeIdiomMatchedIndices()'s output whenever an
-     * idiom's elided field is itself 1-3 letters (true of every idiom shipped so far), but
-     * computed independently rather than assumed, since a future idiom's elided field is not
-     * required to be that short.
+     * The universal medial-n elision shape, locale-independent (quotes.md 3.2, spec 1.1.0): a
+     * pair of NARROW marks enclosing exactly one code point, U+006E or U+004E, with at least one
+     * INLINE-SPACE code point immediately outside each mark. Both mark positions are returned for
+     * every match. A superset of computeIdiomMatchedIndices()'s output for every idiom whose
+     * elided field is a single n (true of every idiom shipped so far), but computed independently
+     * rather than assumed, since a future idiom's elided field is not required to be that short.
+     *
+     * NARROW rather than U+0027 alone is an IDEMPOTENCY obligation, not a preference: this veto's
+     * marks are converted to U+2019 by `apostrophe`, so a straight-ASCII-only predicate would not
+     * recognise its own output and pass 2 would pair `rock 'n' roll`'s converted form as an
+     * ordinary NARROW quotation on the next pipeline run.
      *
      * @return array<int, true>
      */
@@ -298,7 +304,7 @@ final class QuoteAmbiguity
         $n = count($cp);
 
         for ($i = 0; $i < $n; $i++) {
-            if (self::at($cp, $i) !== self::STRAIGHT_APOSTROPHE) {
+            if (!self::isNarrow(self::at($cp, $i))) {
                 continue;
             }
 
@@ -307,16 +313,13 @@ final class QuoteAmbiguity
                 continue;
             }
 
-            $k = 0;
-            while ($k < self::MAX_ENCLOSED && UnicodeUtil::isLetter(self::at($cp, $i + 1 + $k))) {
-                $k++;
-            }
-            if ($k < self::MIN_ENCLOSED) {
+            $enclosed = self::at($cp, $i + 1);
+            if ($enclosed !== self::LOWER_N && $enclosed !== self::UPPER_N) {
                 continue;
             }
 
-            $j = $i + 1 + $k;
-            if (self::at($cp, $j) !== self::STRAIGHT_APOSTROPHE) {
+            $j = $i + 2;
+            if (!self::isNarrow(self::at($cp, $j))) {
                 continue;
             }
 
@@ -330,36 +333,5 @@ final class QuoteAmbiguity
         }
 
         return $ambiguous;
-    }
-
-    /**
-     * The set of straight-ASCII-quote index positions apostrophe.md 3.4 requires `apostrophe` to
-     * skip byte-identically: ambiguous-shaped, but with no matching cited idiom. A position with
-     * a matching idiom is not in this set -- apostrophe's ordinary case ladder still curls it,
-     * exactly as spec 0.4.0-0.4.1 did.
-     *
-     * @param array<int, array{left: string, elided: string, right: string}> $idioms
-     * @return array<int, true>
-     */
-    public static function computePreserveIndices(array $cp, array $idioms): array
-    {
-        $ambiguous = self::computeAmbiguousShapeIndices($cp);
-        if ($ambiguous === []) {
-            return $ambiguous;
-        }
-
-        $idiomMatched = self::computeIdiomMatchedIndices($cp, $idioms);
-        if ($idiomMatched === []) {
-            return $ambiguous;
-        }
-
-        $preserve = [];
-        foreach ($ambiguous as $idx => $_) {
-            if (!isset($idiomMatched[$idx])) {
-                $preserve[$idx] = true;
-            }
-        }
-
-        return $preserve;
     }
 }
