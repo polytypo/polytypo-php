@@ -11,7 +11,8 @@ namespace Polytypo\Engine;
  *
  *   - NONE — there is nothing at that index; the array ends here.
  *   - MARKER — a span boundary whose skipped region has no line terminator. Per modes.md 3.3 it
- *     is opaque content everywhere except OPENISH/CLOSEISH, where it is a member of both.
+ *     is opaque content everywhere except the OPENISH/CLOSEISH classes: a member of both in
+ *     `quotes` and `apostrophe`, of CLOSEISH only in `nbsp` (spec 1.2.0).
  *   - LINE_MARKER — a span boundary whose skipped region contains a line terminator. A member of
  *     BREAK for every rule, everywhere.
  */
