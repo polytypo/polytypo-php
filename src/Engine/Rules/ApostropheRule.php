@@ -10,7 +10,7 @@ use Polytypo\Engine\Sentinels;
 use Polytypo\Engine\UnicodeUtil;
 
 /**
- * spec/rules/apostrophe.md (spec 0.5.0), order 50.
+ * spec/rules/apostrophe.md (spec 1.2.0), order 50.
  *
  * Converts a straight U+0027 to U+2019 where it is genuinely an apostrophe: a contraction, an
  * elision, a possessive, or a decade elision. Runs immediately after `quotes` (order 40) and sees
@@ -123,6 +123,23 @@ final class ApostropheRule
             || $cp === self::EM_DASH;
     }
 
+    /**
+     * OPENQUOTE -- apostrophe.md 3.1 (spec 1.2.0): the quotation glyphs of OPENISH, without its
+     * brackets, dashes and Sentinels::MARKER. Case 3 already accepts the marker through CLOSEISH,
+     * so membership here would change nothing (modes.md 3.3).
+     */
+    private static function isOpenQuote(int $cp): bool
+    {
+        return $cp === self::LEFT_POINTING_DOUBLE_ANGLE_QUOTATION_MARK
+            || $cp === self::LEFT_SINGLE_QUOTATION_MARK
+            || $cp === self::SINGLE_LOW_9_QUOTATION_MARK
+            || $cp === self::SINGLE_HIGH_REVERSED_9_QUOTATION_MARK
+            || $cp === self::LEFT_DOUBLE_QUOTATION_MARK
+            || $cp === self::DOUBLE_LOW_9_QUOTATION_MARK
+            || $cp === self::DOUBLE_HIGH_REVERSED_9_QUOTATION_MARK
+            || $cp === self::SINGLE_LEFT_POINTING_ANGLE_QUOTATION_MARK;
+    }
+
     private static function isCloseish(int $cp): bool
     {
         return $cp === Sentinels::MARKER
@@ -170,6 +187,12 @@ final class ApostropheRule
             $left !== Sentinels::NONE && UnicodeUtil::isLetter($left)
             && ($right === Sentinels::NONE || self::isSpacelike($right) || self::isCloseish($right))
         ) {
+            return true;
+        }
+
+        // Case 3a -- elision before a quotation (spec 1.2.0): `d'« urine »`, `l'“idea”`. Reads no
+        // locale data; `(` is not in OPENQUOTE, so `f'(x)` stays a prime.
+        if (UnicodeUtil::isLetter($left) && self::isOpenQuote($right)) {
             return true;
         }
 

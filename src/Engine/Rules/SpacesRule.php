@@ -136,6 +136,11 @@ final class SpacesRule
      * $e indexes $right in the input array, and the run is measured there. Measuring it after
      * any edit had been applied would break the Chicago spaced ellipsis "Hello . . .", where
      * every dot is a lone dot at decision time and all three spaces must still strip.
+     *
+     * The word-start clause (spec 1.2.0): a single dot followed directly by a letter or an ASCII
+     * digit starts a token -- ".NET", ".gitignore", ".5" -- so the space before it survives
+     * ("Use .NET" no longer becomes "Use.NET"). A span boundary marker after the dot is neither,
+     * so it still strips.
      */
     private static function isLoneDot(array $cp, int $e): bool
     {
@@ -143,7 +148,12 @@ final class SpacesRule
             return true;
         }
 
-        return !self::isDotlike(self::at($cp, $e + 1));
+        $next = self::at($cp, $e + 1);
+        if (UnicodeUtil::isLetter($next) || self::isDigitAscii($next)) {
+            return false;
+        }
+
+        return !self::isDotlike($next);
     }
 
     private static function isDigitAscii(int $value): bool

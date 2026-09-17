@@ -11,7 +11,7 @@ use Polytypo\Engine\UnicodeUtil;
 use Polytypo\PolytypoException;
 
 /**
- * `nbsp` -- spec/rules/nbsp.md (spec 0.6.0), order 70 (last).
+ * `nbsp` -- spec/rules/nbsp.md (spec 1.2.0), order 70 (last).
  *
  * Ten sub-rules, N1 through N10, evaluated in that fixed order (3.2); each produces candidate
  * edits keyed by the index of the space (or insertion point) it claims, and the first sub-rule to
@@ -70,13 +70,7 @@ final class NbspRule
      * BREAK (nbsp.md 3.1), including LINE_MARKER -- a member of BREAK for every rule, everywhere
      * (modes.md 3.2).
      *
-     * Sentinels::MARKER is deliberately NOT a member here, and isOpenish()/isCloseish() below do
-     * not add it either. modes.md 3.3's table says nbsp's OPENISH/CLOSEISH include the
-     * span-boundary MARKER, the same way quotes' and apostrophe's do -- but the JS reference
-     * implementation's own isBreak/isOpenish/isCloseish never test for MARKER, only LINE_MARKER
-     * via isBreak. That is a documented, preserved discrepancy (tracked, not resolved, in the
-     * roadmap), carried forward here unchanged rather than "corrected" against the table, for
-     * cross-runtime consistency with the already-shipped JS, Python, Go and Ruby ports.
+     * Sentinels::MARKER is not a member here; see isOpenish()/isCloseish() for its membership.
      */
     private static function isBreak(int $cp): bool
     {
@@ -239,8 +233,13 @@ final class NbspRule
     }
 
     /**
-     * OPENISH / CLOSEISH (nbsp.md 3.1): the ASCII brackets plus every locale quote glyph. See
-     * isBreak()'s comment for why MARKER is not a member here.
+     * OPENISH / CLOSEISH (nbsp.md 3.1): the ASCII brackets plus every locale quote glyph.
+     *
+     * Spec 1.2.0 splits Sentinels::MARKER's membership (nbsp.md 7 item 12, modes.md 3.3): it is in
+     * CLOSEISH, read only by N1/N2's right-context guard, so "<strong>gel :</strong>" in `fr` gets
+     * its no-break space back after `spaces` deletes the typed one; it is NOT in OPENISH, whose
+     * quote-glyph guard would otherwise lose the narrow space in "<em>non</em> !". LINE_MARKER is
+     * in neither -- it is a member of BREAK only.
      *
      * @param array<string, mixed> $prep
      */
@@ -252,7 +251,7 @@ final class NbspRule
     /** @param array<string, mixed> $prep */
     private static function isCloseish(array $prep, int $cp): bool
     {
-        return in_array($cp, $prep['closes'], true);
+        return $cp === Sentinels::MARKER || in_array($cp, $prep['closes'], true);
     }
 
     /** @param array<string, mixed> $prep */
@@ -408,7 +407,8 @@ final class NbspRule
 
             // Step 2 -- right-context guard: this is what protects "http://" and "12:30". U+2026
             // is accepted because the guard exists to catch punctuation *inside a token*, and an
-            // ellipsis after a question mark is not that (nbsp.md 3.3 step 2).
+            // ellipsis after a question mark is not that (nbsp.md 3.3 step 2). A span boundary
+            // marker passes through isCloseish() (spec 1.2.0).
             $after = self::at($cp, $i + 1);
             if (
                 $after !== Sentinels::NONE && !self::isSpaceLike($after) && !self::isCloseish($prep, $after) &&
