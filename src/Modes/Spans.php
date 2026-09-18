@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Polytypo\Modes;
 
 use Polytypo\Engine\Edit;
+use Polytypo\Engine\Origin;
 use Polytypo\Engine\Sentinels;
 use Polytypo\PolytypoException;
 
@@ -92,6 +93,33 @@ final class Spans
         }
 
         return $cp;
+    }
+
+    /**
+     * The origin map for concatenateSpans (analyze.md section 2): for every code point of the
+     * joined array, the code-point offset of the character it came from IN THE DOCUMENT, and
+     * Origin::NO_ORIGIN for the markers, which came from nowhere. A Span's bounds are already
+     * code-point offsets (the mode adapter converts its parser's byte offsets away before
+     * constructing one), so no coordinate conversion belongs here.
+     *
+     * @param Span[] $spans
+     * @return int[]
+     */
+    public static function originOfSpans(array $spans): array
+    {
+        $origin = [];
+        $first = true;
+        foreach ($spans as $span) {
+            if (!$first) {
+                $origin[] = Origin::NO_ORIGIN;
+            }
+            for ($i = $span->start; $i < $span->end; $i++) {
+                $origin[] = $i;
+            }
+            $first = false;
+        }
+
+        return $origin;
     }
 
     /**

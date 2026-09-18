@@ -63,6 +63,24 @@ accepts PHP named arguments:
 Polytypo::transform($input, 'fr', mode: 'html', rules: ['ranges' => true]);
 ```
 
+`Polytypo::analyze` runs the same pipeline and reports what it would do instead of doing it — one
+`Polytypo\Change` per edit, each with the rule that made it and code-point offsets into the input
+you passed (into the **document**, in `html` mode, not into a span):
+
+```php
+Polytypo::analyze('Wait... "really"?', 'en-US');
+// => [ Change { ruleId: "ellipsis", start: 4, end: 7, before: "...", after: "…" },
+//      Change { ruleId: "quotes", start: 8, end: 9, before: "\"", after: "“" }, ... ]
+```
+
+Offsets are code points, not bytes: in `😀 and "this"` the opening quotation mark is reported at
+6, where `strpos` would say 9. It is a report, not a patch. The list is empty exactly when
+`Polytypo::transform` would return the input unchanged, and every `ruleId` is a rule that was
+enabled for that call — but two rules may touch the same original range (French `spaces` deletes
+the space before `:` and `nbsp` puts a no-break one back), so replaying the list is not guaranteed
+to reproduce the output. Call `Polytypo::transform` for the text. Full contract:
+`spec/rules/analyze.md`.
+
 ### Errors
 
 Every error `Polytypo::transform` raises is a `Polytypo\PolytypoException` carrying one of seven

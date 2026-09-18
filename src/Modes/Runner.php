@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Polytypo\Modes;
 
 use Polytypo\Engine\Edits;
+use Polytypo\Engine\Pipeline;
 use Polytypo\Engine\Registry;
 use Polytypo\Engine\RuleContext;
 
@@ -89,5 +90,44 @@ final class Runner
         }
 
         return \Polytypo\Engine\Codepoints::fromCodepoints($out);
+    }
+
+    /**
+     * runOverSpans, reporting instead of applying (analyze.md section 1). The span table supplies
+     * the origin map, so every change comes back in DOCUMENT coordinates -- analyze.md section 6
+     * names a runtime that reports span-local offsets here as the mistake that passes every
+     * text-mode test.
+     *
+     * @param int[] $sourceCp
+     * @param Span[] $spans
+     * @param string[] $plan
+     * @param array<string, mixed> $localeData
+     * @return \Polytypo\Change[]
+     */
+    public static function analyzeOverSpans(
+        array $sourceCp,
+        array $spans,
+        array $plan,
+        array $localeData,
+        RuleContext $ctx,
+    ): array {
+        $normalized = Spans::normalizeSpans($spans);
+        if ($normalized === []) {
+            return [];
+        }
+
+        return Pipeline::runRulesRecording(
+            Spans::concatenateSpans($sourceCp, $normalized),
+            $plan,
+            $localeData,
+            $ctx,
+            Spans::originOfSpans($normalized),
+            count($sourceCp),
+            static fn (array $current, array $edits): array => Spans::filterBoundaryEdits(
+                $current,
+                $edits,
+                Spans::spanRangesOf($current),
+            ),
+        );
     }
 }
