@@ -58,7 +58,7 @@ final class NbspRule
      * Shape, not the HTML named-reference table -- declining on "&notaname;" costs nothing, and
      * no runtime carries thousands of entries for it.
      *
-     * @param list<int> $cp
+     * @param int[] $cp
      */
     private static function endsCharacterReference(array $cp, int $i): bool
     {
