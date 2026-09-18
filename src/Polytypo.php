@@ -60,6 +60,40 @@ final class Polytypo
         };
     }
 
+    /**
+     * Runs the same pipeline as transform() and reports what it would do instead of doing it
+     * (spec/rules/analyze.md). Offsets are code-point offsets into $input in every mode -- into
+     * the document, in "html" mode, not into a span.
+     *
+     * What it guarantees: the list is empty exactly when transform() would return the input
+     * unchanged, every ruleId was enabled for the call, and every offset is inside the input.
+     * What it does not: the list is a report, not a patch -- two rules may touch the same
+     * original range, so replaying it is not guaranteed to reproduce transform()'s output. Call
+     * transform() for the text (analyze.md sections 4 and 5).
+     *
+     * Pure on the same terms as transform().
+     *
+     * @param array<string, bool>|null $rules
+     * @return Change[]
+     */
+    public static function analyze(
+        string $input,
+        string $locale,
+        string $mode = 'text',
+        ?string $dialect = null,
+        ?array $rules = null,
+    ): array {
+        $resolvedMode = self::resolveMode($mode);
+
+        return match ($resolvedMode) {
+            'text' => self::analyzeText($input, $locale, $dialect, $rules),
+            'html' => self::analyzeHtml($input, $locale, $dialect, $rules),
+            // 'markdown': not implemented by this runtime, exactly as for transform() -- A1
+            // requires analyze() to reject what transform() rejects, with the same code.
+            default => self::transformMarkdown($input, $locale, $dialect, $rules),
+        };
+    }
+
     private static function resolveMode(string $mode): string
     {
         return match ($mode) {
@@ -123,5 +157,43 @@ final class Polytypo
             "markdown mode is not implemented by this runtime (dialect given: {$given}). "
                 . 'See spec/CONFORMANCE.md in github.com/polytypo/polytypo for what this runtime implements.',
         );
+    }
+
+    /**
+     * @param array<string, bool>|null $rules
+     * @return Change[]
+     */
+    private static function analyzeText(string $input, string $locale, ?string $dialect, ?array $rules): array
+    {
+        if ($dialect !== null) {
+            throw new PolytypoException(
+                PolytypoException::CODE_INVALID_DIALECT,
+                '"dialect" is only valid when mode is "markdown"',
+            );
+        }
+        [, $localeData, $plan] = Pipeline::prepare($locale, $rules);
+        $cp = Codepoints::toCodepoints($input);
+        $ctx = new RuleContext(mode: 'text', dialect: null, locale: $locale);
+
+        return Pipeline::runRulesRecording($cp, $plan, $localeData, $ctx, array_keys($cp), count($cp));
+    }
+
+    /**
+     * @param array<string, bool>|null $rules
+     * @return Change[]
+     */
+    private static function analyzeHtml(string $input, string $locale, ?string $dialect, ?array $rules): array
+    {
+        if ($dialect !== null) {
+            throw new PolytypoException(
+                PolytypoException::CODE_INVALID_DIALECT,
+                '"dialect" is only valid when mode is "markdown"',
+            );
+        }
+        [$resolvedLocale, $localeData, $plan] = Pipeline::prepare($locale, $rules);
+        $spans = Html::htmlSpans($input);
+        $ctx = new RuleContext(mode: 'html', dialect: null, locale: $resolvedLocale);
+
+        return Runner::analyzeOverSpans(Codepoints::toCodepoints($input), $spans, $plan, $localeData, $ctx);
     }
 }

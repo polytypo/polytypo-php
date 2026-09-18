@@ -86,4 +86,45 @@ final class Pipeline
 
         return $current;
     }
+
+    /**
+     * runRules, keeping the edits instead of discarding them (analyze.md section 1: same
+     * pipeline, same order, reporting rather than applying). The origin map travels alongside the
+     * array so every change comes back in input coordinates, and $filterEdits is the hook the
+     * span-runner needs for modes.md 3.4's boundary filters -- text mode passes null and gets the
+     * identity.
+     *
+     * @param int[] $cp
+     * @param string[] $plan
+     * @param array<string, mixed> $localeData
+     * @param int[] $origin
+     * @param null|callable(int[], Edit[]): Edit[] $filterEdits
+     * @return \Polytypo\Change[]
+     */
+    public static function runRulesRecording(
+        array $cp,
+        array $plan,
+        array $localeData,
+        RuleContext $ctx,
+        array $origin,
+        int $inputLength,
+        ?callable $filterEdits = null,
+    ): array {
+        $current = $cp;
+        $currentOrigin = $origin;
+        $changes = [];
+        foreach ($plan as $ruleId) {
+            $fn = Registry::rule($ruleId);
+            $produced = $fn($current, $localeData, $ctx);
+            $edits = $filterEdits === null ? $produced : $filterEdits($current, $produced);
+            if ($edits === []) {
+                continue;
+            }
+            array_push($changes, ...Origin::recordChanges($current, $edits, $currentOrigin, $inputLength, $ruleId));
+            $currentOrigin = Origin::applyEditsToOrigin($currentOrigin, $edits);
+            $current = Edits::applyEdits($current, $edits, $ruleId);
+        }
+
+        return $changes;
+    }
 }
