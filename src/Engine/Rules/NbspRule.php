@@ -38,12 +38,48 @@ final class NbspRule
     private const SQUARE_CLOSE = 0x5D;
     private const BRACE_CLOSE = 0x7D;
 
+    private const SEMICOLON = 0x3B;
+    private const AMPERSAND = 0x26;
+    private const HASH = 0x23;
+    /** The longest HTML named reference is 31 code points ("CounterClockwiseContourIntegral"). */
+    private const MAX_CHARACTER_REFERENCE_NAME = 32;
+
     private const EN_DASH = 0x2013;
     private const EM_DASH = 0x2014;
     private const ELLIPSIS = 0x2026;
 
     private function __construct()
     {
+    }
+
+    /**
+     * nbsp.md 3.3 step 4: do the code points left of this ";" have the shape of a character
+     * reference? A bounded left walk over ASCII alphanumerics, optionally one "#", then "&".
+     * Shape, not the HTML named-reference table -- declining on "&notaname;" costs nothing, and
+     * no runtime carries thousands of entries for it.
+     *
+     * @param list<int> $cp
+     */
+    private static function endsCharacterReference(array $cp, int $i): bool
+    {
+        $j = $i - 1;
+        while ($j >= 0 && self::isAsciiAlphanumeric($cp[$j])) {
+            $j--;
+        }
+        $length = $i - 1 - $j;
+        if ($length < 1 || $length > self::MAX_CHARACTER_REFERENCE_NAME) {
+            return false;
+        }
+        if ($j >= 0 && $cp[$j] === self::HASH) {
+            $j--;
+        }
+
+        return $j >= 0 && $cp[$j] === self::AMPERSAND;
+    }
+
+    private static function isAsciiAlphanumeric(int $c): bool
+    {
+        return ($c >= 0x30 && $c <= 0x39) || ($c >= 0x41 && $c <= 0x5A) || ($c >= 0x61 && $c <= 0x7A);
     }
 
     /** cp[i], or Sentinels::NONE if i is out of bounds -- the spec's own boundary value. */
@@ -427,7 +463,14 @@ final class NbspRule
                 continue;
             }
 
-            // Step 4.
+            // Step 4 (spec 1.3.0) -- character-reference guard. text mode has no markup concept,
+            // so a locale listing ";" used to insert before the ";" that *ends* a reference and
+            // "Bonjour&#160;: oui" stopped being what it was (nbsp.md 3.3 step 4).
+            if ($cp[$i] === self::SEMICOLON && self::endsCharacterReference($cp, $i)) {
+                continue;
+            }
+
+            // Step 5.
             if ($left === $target) {
                 continue;
             }
