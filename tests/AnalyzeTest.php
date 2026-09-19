@@ -178,14 +178,23 @@ final class AnalyzeTest extends TestCase
 
     public function testHtmlModeReportsDocumentOffsetsInALaterSpan(): void
     {
-        // Three spans, and the change is in the third: the two markers before it are the only
-        // code points in the joined array with no origin, so a doubled or dropped one shifts this
-        // offset and nothing in a one- or two-span document would notice.
-        $input = '<p>one</p><p>two</p><p>Wait... three</p>';
+        // Three spans, a non-ASCII character before the change, and the change in the third
+        // span: the two markers are the only code points in the joined array with no origin, so
+        // a doubled or dropped one shifts this offset and nothing in a one- or two-span document
+        // would notice. `café` then puts the byte offset one ahead of the code-point offset, so
+        // a byte offset leaking out of the span adapter cannot pass this either -- which is the
+        // mistake available to PHP specifically.
+        $input = '<p>café</p><p>two</p><p>Wait... three</p>';
         $changes = Polytypo::analyze($input, 'en-US', 'html');
         $this->assertNotSame([], $changes);
         $this->assertSame('ellipsis', $changes[0]->ruleId);
-        $this->assertSame(mb_strpos($input, '...', 0, 'UTF-8'), $changes[0]->start);
+        $want = mb_strpos($input, '...', 0, 'UTF-8');
+        $this->assertSame(
+            $want,
+            strpos($input, '...') - 1,
+            'test premise: the byte offset differs from the code-point one',
+        );
+        $this->assertSame($want, $changes[0]->start);
     }
 
     public function testReportsRulesInPipelineOrder(): void
