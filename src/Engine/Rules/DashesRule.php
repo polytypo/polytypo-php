@@ -101,7 +101,10 @@ final class DashesRule
             // A digit-flanked token is `ranges`' territory, never `dashes`' -- declined
             // unconditionally, whether or not `ranges` is enabled (operator decision, spec
             // 0.5.0).
-            if (DashShared::isDigit($token['leftCp']) && DashShared::isDigit($token['rightCp'])) {
+            // A range candidate is `ranges`' territory, never `dashes`'. Since spec 1.3.0 a
+            // candidate may carry a matched closed-up symbol on a flank (ranges.md 3.2a), which
+            // is why this is rangeFlanks rather than a digit test on both flanks.
+            if (DashShared::rangeFlanks($cp, $token['left'], $token['right']) !== null) {
                 continue;
             }
 

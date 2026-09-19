@@ -54,25 +54,24 @@ final class RangesRule
     }
 
     /**
-     * ranges.md 3.3, G1-G5. left/right are the token's post-joiner-walk flank indices (both
-     * already known to be DIGIT by the caller).
+     * ranges.md 3.2, G1-G5, over the flanks and digit runs 3.2a's walk produced. before/after
+     * read past a matched outer closed-up symbol, so G1-G3 judge the text in front of the whole
+     * member rather than the symbol itself -- which is what declines `US$15-$20` on G1.
      *
      * @param int[] $cp
+     * @param array{left: int, right: int, a: int, b: int, outerLeft: int, outerRight: int} $flanks
      */
-    private static function guardsPass(array $cp, int $left, int $right): bool
+    private static function guardsPass(array $cp, array $flanks): bool
     {
-        $n = count($cp);
-        $a = $left;
-        while ($a > 0 && DashShared::isDigit($cp[$a - 1])) {
-            $a--;
-        }
-        $b = $right;
-        while ($b + 1 < $n && DashShared::isDigit($cp[$b + 1])) {
-            $b++;
-        }
+        $left = $flanks['left'];
+        $right = $flanks['right'];
+        $a = $flanks['a'];
+        $b = $flanks['b'];
 
-        $before = DashShared::effectiveNeighbour($cp, $a - 1, -1);
-        $after = DashShared::effectiveNeighbour($cp, $b + 1, 1);
+        $beforeFrom = $flanks['outerLeft'] >= 0 ? $flanks['outerLeft'] : $a;
+        $afterFrom = $flanks['outerRight'] >= 0 ? $flanks['outerRight'] : $b;
+        $before = DashShared::effectiveNeighbour($cp, $beforeFrom - 1, -1);
+        $after = DashShared::effectiveNeighbour($cp, $afterFrom + 1, 1);
 
         // G1 -- no letter adjacency.
         if (UnicodeUtil::isLetter($before)) {
@@ -119,16 +118,17 @@ final class RangesRule
         $style = $localeData['dash']['range'];
 
         foreach (DashShared::findTokens($cp) as $token) {
-            // ranges.md 3.2 -- a range candidate iff both flanks are DIGIT. `ranges` never
-            // processes any other token shape; that is `dashes`' territory, and `dashes`
-            // declines a digit-flanked token unconditionally too (operator decision, spec
+            // ranges.md 3.2, 3.2a -- a candidate iff both flanks are DIGIT once a matched
+            // closed-up symbol has been walked over. Anything else is `dashes`' territory, and
+            // `dashes` declines a candidate unconditionally too (operator decision, spec
             // 0.5.0) -- neither rule reinterprets the other's shape, whether or not `ranges` is
             // enabled.
-            if (!DashShared::isDigit($token['leftCp']) || !DashShared::isDigit($token['rightCp'])) {
+            $flanks = DashShared::rangeFlanks($cp, $token['left'], $token['right']);
+            if ($flanks === null) {
                 continue;
             }
 
-            if (!self::guardsPass($cp, $token['left'], $token['right'])) {
+            if (!self::guardsPass($cp, $flanks)) {
                 continue;
             }
 
@@ -141,18 +141,20 @@ final class RangesRule
             if (DashShared::isSpacedStyle($style)) {
                 // T1: a tight token may not become spaced across a digit run that has a far
                 // dash.
+                // T1/T2 read the walked flanks: ranges.md 3.2a makes cp[L']/cp[R'] what every
+                // shared guard sees once a closed-up symbol has been consumed.
                 if (
                     $token['lsp'] === 0 && $token['rsp'] === 0 &&
-                    DashShared::isSpacingTransitionBlocked($cp, $token['left'], $token['right'])
+                    DashShared::isSpacingTransitionBlocked($cp, $flanks['left'], $flanks['right'])
                 ) {
                     continue;
                 }
                 // T2: the emitted U+0020 must not land where `spaces` (order 10) would delete
                 // it.
-                if (DashShared::isStripBeforeOrCloseBracket($token['rightCp'])) {
+                if (DashShared::isStripBeforeOrCloseBracket($cp[$flanks['right']])) {
                     continue;
                 }
-                if (DashShared::isOpenBracket($token['leftCp'])) {
+                if (DashShared::isOpenBracket($cp[$flanks['left']])) {
                     continue;
                 }
             }

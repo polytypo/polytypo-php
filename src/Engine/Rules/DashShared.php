@@ -101,6 +101,108 @@ final class DashShared
      * BREAK, including Sentinels::LINE_MARKER: a member of BREAK for every rule everywhere
      * (modes.md 3.2).
      */
+    /**
+     * ranges.md 3.2a CLOSED-SYMBOL (spec 1.3.0): the symbols conventionally written closed up to
+     * a number. A literal code-point set, never a Unicode category test -- a category makes the
+     * verdict depend on which Unicode version a runtime was built against, and the five runtimes
+     * must agree. The currency part is the U+20A0-U+20CF block by its own bounds, not the subset
+     * assigned in some Unicode version: the assigned subset drifts between releases, block
+     * bounds do not.
+     */
+    public static function isClosedUpSymbol(int $cp): bool
+    {
+        return $cp === 0x0024
+            || ($cp >= 0x00A2 && $cp <= 0x00A5)
+            || ($cp >= 0x20A0 && $cp <= 0x20CF)
+            || $cp === 0x0025
+            || $cp === 0x2030
+            || $cp === 0x2031
+            || $cp === 0x00B0;
+    }
+
+    /**
+     * ranges.md 3.2 and 3.2a -- is this token a range candidate, and where are its digit runs?
+     * null means it is not one, which is the signal that the token belongs to `dashes`.
+     *
+     * Both sides are decided from the ORIGINAL left/right, simultaneously; a side consumes a
+     * closed-up symbol only when the opposite member repeats the same code point. An unmatched
+     * symbol leaves the flank a non-DIGIT, so `$15-<euro>20` and `15-$20` are not candidates and
+     * do not change hands.
+     *
+     * @param int[] $cp
+     * @return array{left: int, right: int, a: int, b: int, outerLeft: int, outerRight: int}|null
+     */
+    public static function rangeFlanks(array $cp, int $left, int $right): ?array
+    {
+        $n = count($cp);
+        $innerRight = null;
+        if (
+            $right >= 0 && $right < $n && self::isClosedUpSymbol($cp[$right])
+            && $right + 1 < $n && self::isDigit($cp[$right + 1])
+        ) {
+            $innerRight = $cp[$right];
+        }
+        $innerLeft = null;
+        if (
+            $left > 0 && $left < $n && self::isClosedUpSymbol($cp[$left])
+            && self::isDigit($cp[$left - 1])
+        ) {
+            $innerLeft = $cp[$left];
+        }
+
+        $l = $innerLeft === null ? $left : $left - 1;
+        $r = $innerRight === null ? $right : $right + 1;
+        if ($l < 0 || $l >= $n || $r < 0 || $r >= $n) {
+            return null;
+        }
+        if (!self::isDigit($cp[$l]) || !self::isDigit($cp[$r])) {
+            return null;
+        }
+
+        $a = $l;
+        while ($a > 0 && self::isDigit($cp[$a - 1])) {
+            $a--;
+        }
+        $b = $r;
+        while ($b + 1 < $n && self::isDigit($cp[$b + 1])) {
+            $b++;
+        }
+
+        $outerLeft = -1;
+        if ($innerRight !== null) {
+            $outerLeft = self::effectiveIndex($cp, $a - 1, -1);
+            if ($outerLeft < 0 || $cp[$outerLeft] !== $innerRight) {
+                return null;
+            }
+        }
+        $outerRight = -1;
+        if ($innerLeft !== null) {
+            $outerRight = self::effectiveIndex($cp, $b + 1, 1);
+            if ($outerRight < 0 || $cp[$outerRight] !== $innerLeft) {
+                return null;
+            }
+        }
+
+        return ['left' => $l, 'right' => $r, 'a' => $a, 'b' => $b,
+            'outerLeft' => $outerLeft, 'outerRight' => $outerRight];
+    }
+
+    /**
+     * T1's reach is transparent to one CLOSED-SYMBOL on either end of a digit run (spec 1.3.0):
+     * the run it protects may be a range member carrying an outer symbol.
+     *
+     * @param int[] $cp
+     */
+    public static function skipClosedUpSymbol(array $cp, int $from, int $step): int
+    {
+        $i = self::effectiveIndex($cp, $from, $step);
+        if ($i < 0 || !self::isClosedUpSymbol($cp[$i])) {
+            return $from;
+        }
+
+        return $i + $step;
+    }
+
     public static function isBreak(int $cp): bool
     {
         return $cp === self::LF || $cp === self::CR || $cp === self::VT || $cp === self::FF ||
@@ -284,12 +386,27 @@ final class DashShared
     {
         $n = count($cp);
 
+        // Spec 1.3.0, position p1: step over a CLOSED-SYMBOL between the token and the run.
+        if (
+            $left > 0 && $left < $n && self::isClosedUpSymbol($cp[$left])
+            && self::isDigit($cp[$left - 1])
+        ) {
+            $left--;
+        }
+        if (
+            $right >= 0 && $right < $n && self::isClosedUpSymbol($cp[$right])
+            && $right + 1 < $n && self::isDigit($cp[$right + 1])
+        ) {
+            $right++;
+        }
+
         if ($left >= 0 && $left < $n && self::isDigit($cp[$left])) {
             $d = $left;
             while ($d > 0 && self::isDigit($cp[$d - 1])) {
                 $d--;
             }
-            $i1 = self::effectiveIndex($cp, $d - 1, -1);
+            // Position p2: and over one at the far end of the run.
+            $i1 = self::effectiveIndex($cp, self::skipClosedUpSymbol($cp, $d - 1, -1), -1);
             $one = $i1 >= 0 ? $cp[$i1] : Sentinels::NONE;
             $two = $i1 >= 0 ? self::effectiveNeighbour($cp, $i1 - 1, -1) : Sentinels::NONE;
             if (self::isDashUnion($one)) {
@@ -305,7 +422,7 @@ final class DashShared
             while ($d + 1 < $n && self::isDigit($cp[$d + 1])) {
                 $d++;
             }
-            $i1 = self::effectiveIndex($cp, $d + 1, 1);
+            $i1 = self::effectiveIndex($cp, self::skipClosedUpSymbol($cp, $d + 1, 1), 1);
             $one = $i1 >= 0 ? $cp[$i1] : Sentinels::NONE;
             $two = $i1 >= 0 ? self::effectiveNeighbour($cp, $i1 + 1, 1) : Sentinels::NONE;
             if (self::isDashUnion($one)) {
@@ -423,7 +540,10 @@ final class DashShared
             $leftCp = $cp[$left];
             $rightCp = $cp[$right];
 
-            if ($crossedJoiner && !(self::isDigit($leftCp) && self::isDigit($rightCp))) {
+            // dashes.md 3.2a: re-entry across a joiner is only ever a bound range `ranges`
+            // produced on an earlier pass. Spec 1.3.0 reads that condition after the
+            // closed-up-symbol walk, so a bound range carrying symbols re-enters the same way.
+            if ($crossedJoiner && self::rangeFlanks($cp, $left, $right) === null) {
                 continue;
             }
             if (self::isBreak($leftCp) || self::isBreak($rightCp)) {
