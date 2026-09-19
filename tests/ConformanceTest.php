@@ -57,10 +57,15 @@ final class ConformanceTest extends TestCase
         $locale = $case['locale'];
         $mode = $case['mode'] ?? 'text';
         $rules = $case['rules'] ?? null;
+        // Spec 1.3.0's case-level option (nbsp.md 3.1a). It is passed on BOTH calls below: a
+        // case carrying it is a fixed point under its own options and not under the defaults,
+        // so carrying it into the idempotency re-run is contract (ARCHITECTURE.md 6.1), not
+        // convenience.
+        $narrowNbsp = $case['narrowNbsp'] ?? null;
 
         if (isset($case['throws'])) {
             try {
-                Polytypo::transform($case['in'], $locale, mode: $mode, rules: $rules);
+                Polytypo::transform($case['in'], $locale, mode: $mode, rules: $rules, narrowNbsp: $narrowNbsp);
                 self::fail('expected ' . $case['throws'] . ' to be thrown');
             } catch (PolytypoException $e) {
                 self::assertSame($case['throws'], $e->getErrorCode());
@@ -70,11 +75,11 @@ final class ConformanceTest extends TestCase
         }
 
         $expected = $case['out'];
-        $got = Polytypo::transform($case['in'], $locale, mode: $mode, rules: $rules);
+        $got = Polytypo::transform($case['in'], $locale, mode: $mode, rules: $rules, narrowNbsp: $narrowNbsp);
         self::assertSame($expected, $got, "out = " . self::escape($got) . ', want ' . self::escape($expected));
 
         // Free coverage, and the most common port bug (ARCHITECTURE.md 6.1).
-        $twice = Polytypo::transform($expected, $locale, mode: $mode, rules: $rules);
+        $twice = Polytypo::transform($expected, $locale, mode: $mode, rules: $rules, narrowNbsp: $narrowNbsp);
         self::assertSame($expected, $twice, 'not idempotent: transform(out) = ' . self::escape($twice));
     }
 

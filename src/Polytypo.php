@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Polytypo;
 
 use Polytypo\Engine\Codepoints;
+use Polytypo\Engine\NarrowTarget;
 use Polytypo\Engine\Pipeline;
 use Polytypo\Engine\RuleContext;
 use Polytypo\Modes\Html;
@@ -44,12 +45,14 @@ final class Polytypo
         string $mode = 'text',
         ?string $dialect = null,
         ?array $rules = null,
+        ?string $narrowNbsp = null,
     ): string {
         $resolvedMode = self::resolveMode($mode);
+        $narrowTarget = NarrowTarget::resolve($narrowNbsp);
 
         return match ($resolvedMode) {
-            'text' => self::transformText($input, $locale, $dialect, $rules),
-            'html' => self::transformHtml($input, $locale, $dialect, $rules),
+            'text' => self::transformText($input, $locale, $dialect, $rules, $narrowTarget),
+            'html' => self::transformHtml($input, $locale, $dialect, $rules, $narrowTarget),
             // 'markdown': no dialect is implemented by this runtime (verified this session:
             // league/commonmark gives no position data at all on inline text nodes, and no other
             // maintained PHP CommonMark/GFM library with the needed raw-extent span property
@@ -82,12 +85,14 @@ final class Polytypo
         string $mode = 'text',
         ?string $dialect = null,
         ?array $rules = null,
+        ?string $narrowNbsp = null,
     ): array {
         $resolvedMode = self::resolveMode($mode);
+        $narrowTarget = NarrowTarget::resolve($narrowNbsp);
 
         return match ($resolvedMode) {
-            'text' => self::analyzeText($input, $locale, $dialect, $rules),
-            'html' => self::analyzeHtml($input, $locale, $dialect, $rules),
+            'text' => self::analyzeText($input, $locale, $dialect, $rules, $narrowTarget),
+            'html' => self::analyzeHtml($input, $locale, $dialect, $rules, $narrowTarget),
             // 'markdown': not implemented by this runtime, exactly as for transform() -- A1
             // requires analyze() to reject what transform() rejects, with the same code.
             default => self::transformMarkdown($input, $locale, $dialect, $rules),
@@ -107,7 +112,13 @@ final class Polytypo
     }
 
     /** @param array<string, bool>|null $rules */
-    private static function transformText(string $input, string $locale, ?string $dialect, ?array $rules): string
+    private static function transformText(
+        string $input,
+        string $locale,
+        ?string $dialect,
+        ?array $rules,
+        int $narrowTarget,
+    ): string
     {
         if ($dialect !== null) {
             throw new PolytypoException(
@@ -117,14 +128,20 @@ final class Polytypo
         }
         [, $localeData, $plan] = Pipeline::prepare($locale, $rules);
         $cp = Codepoints::toCodepoints($input);
-        $ctx = new RuleContext(mode: 'text', dialect: null, locale: $locale);
+        $ctx = new RuleContext(mode: 'text', dialect: null, locale: $locale, narrowTarget: $narrowTarget);
         $result = Pipeline::runRules($cp, $plan, $localeData, $ctx);
 
         return Codepoints::fromCodepoints($result);
     }
 
     /** @param array<string, bool>|null $rules */
-    private static function transformHtml(string $input, string $locale, ?string $dialect, ?array $rules): string
+    private static function transformHtml(
+        string $input,
+        string $locale,
+        ?string $dialect,
+        ?array $rules,
+        int $narrowTarget,
+    ): string
     {
         if ($dialect !== null) {
             throw new PolytypoException(
@@ -134,7 +151,7 @@ final class Polytypo
         }
         [$resolvedLocale, $localeData, $plan] = Pipeline::prepare($locale, $rules);
         $spans = Html::htmlSpans($input);
-        $ctx = new RuleContext(mode: 'html', dialect: null, locale: $resolvedLocale);
+        $ctx = new RuleContext(mode: 'html', dialect: null, locale: $resolvedLocale, narrowTarget: $narrowTarget);
         $cp = Codepoints::toCodepoints($input);
 
         return Runner::runOverSpans($cp, $spans, $plan, $localeData, $ctx);
@@ -163,7 +180,13 @@ final class Polytypo
      * @param array<string, bool>|null $rules
      * @return Change[]
      */
-    private static function analyzeText(string $input, string $locale, ?string $dialect, ?array $rules): array
+    private static function analyzeText(
+        string $input,
+        string $locale,
+        ?string $dialect,
+        ?array $rules,
+        int $narrowTarget,
+    ): array
     {
         if ($dialect !== null) {
             throw new PolytypoException(
@@ -173,7 +196,7 @@ final class Polytypo
         }
         [, $localeData, $plan] = Pipeline::prepare($locale, $rules);
         $cp = Codepoints::toCodepoints($input);
-        $ctx = new RuleContext(mode: 'text', dialect: null, locale: $locale);
+        $ctx = new RuleContext(mode: 'text', dialect: null, locale: $locale, narrowTarget: $narrowTarget);
 
         return Pipeline::runRulesRecording($cp, $plan, $localeData, $ctx, array_keys($cp), count($cp));
     }
@@ -182,7 +205,13 @@ final class Polytypo
      * @param array<string, bool>|null $rules
      * @return Change[]
      */
-    private static function analyzeHtml(string $input, string $locale, ?string $dialect, ?array $rules): array
+    private static function analyzeHtml(
+        string $input,
+        string $locale,
+        ?string $dialect,
+        ?array $rules,
+        int $narrowTarget,
+    ): array
     {
         if ($dialect !== null) {
             throw new PolytypoException(
@@ -192,7 +221,7 @@ final class Polytypo
         }
         [$resolvedLocale, $localeData, $plan] = Pipeline::prepare($locale, $rules);
         $spans = Html::htmlSpans($input);
-        $ctx = new RuleContext(mode: 'html', dialect: null, locale: $resolvedLocale);
+        $ctx = new RuleContext(mode: 'html', dialect: null, locale: $resolvedLocale, narrowTarget: $narrowTarget);
 
         return Runner::analyzeOverSpans(Codepoints::toCodepoints($input), $spans, $plan, $localeData, $ctx);
     }
