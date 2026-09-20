@@ -118,8 +118,7 @@ final class Polytypo
         ?string $dialect,
         ?array $rules,
         int $narrowTarget,
-    ): string
-    {
+    ): string {
         if ($dialect !== null) {
             throw new PolytypoException(
                 PolytypoException::CODE_INVALID_DIALECT,
@@ -141,8 +140,7 @@ final class Polytypo
         ?string $dialect,
         ?array $rules,
         int $narrowTarget,
-    ): string
-    {
+    ): string {
         if ($dialect !== null) {
             throw new PolytypoException(
                 PolytypoException::CODE_INVALID_DIALECT,
@@ -186,8 +184,7 @@ final class Polytypo
         ?string $dialect,
         ?array $rules,
         int $narrowTarget,
-    ): array
-    {
+    ): array {
         if ($dialect !== null) {
             throw new PolytypoException(
                 PolytypoException::CODE_INVALID_DIALECT,
@@ -211,8 +208,7 @@ final class Polytypo
         ?string $dialect,
         ?array $rules,
         int $narrowTarget,
-    ): array
-    {
+    ): array {
         if ($dialect !== null) {
             throw new PolytypoException(
                 PolytypoException::CODE_INVALID_DIALECT,
