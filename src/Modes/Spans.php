@@ -18,6 +18,9 @@ final class Spans
 {
     private const LINE_TERMINATORS = [0x0A, 0x0D, 0x0B, 0x0C, 0x85, 0x2028, 0x2029];
 
+    /** U+0020, the one emitted code point whose meaning is positional (modes.md 3.4, 5 item 2). */
+    private const SPACE = 0x20;
+
     private function __construct()
     {
     }
@@ -184,8 +187,20 @@ final class Spans
             $d = $edit->end - $edit->start;
             $r = count($edit->replacement);
             $span = self::spanContaining($ranges, $p);
+            if ($span === null || ($p !== $span->first && $q !== $span->last)) {
+                return true;
+            }
+            if ($r > $d) {
+                return false;
+            }
+            if ($r > 0 && $p === $span->first && $edit->replacement[0] === self::SPACE && $cp[$p] !== self::SPACE) {
+                return false;
+            }
+            if ($r > 0 && $q === $span->last && $edit->replacement[$r - 1] === self::SPACE && $cp[$q] !== self::SPACE) {
+                return false;
+            }
 
-            return !($span !== null && $r > $d && ($p === $span->first || $q === $span->last));
+            return true;
         }));
     }
 
