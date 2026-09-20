@@ -109,7 +109,7 @@ final class NarrowNbspTest extends TestCase
         );
         $this->assertSame(
             PolytypoException::CODE_INVALID_MODE,
-            $codeOf(static fn () => Polytypo::transform('x', 'fr', 'yaml', narrowNbsp: 'wide')),
+            $codeOf(static fn () => Polytypo::transform('x', 'fr', 'asciidoc', narrowNbsp: 'wide')),
         );
         $this->assertSame(
             PolytypoException::CODE_INVALID_OPTION,

@@ -6,9 +6,11 @@ namespace Polytypo;
 
 use Polytypo\Engine\Codepoints;
 use Polytypo\Engine\NarrowTarget;
+use Polytypo\Engine\YamlKeys;
 use Polytypo\Engine\Pipeline;
 use Polytypo\Engine\RuleContext;
 use Polytypo\Modes\Html;
+use Polytypo\Modes\Yaml;
 use Polytypo\Modes\Runner;
 
 /**
@@ -29,15 +31,19 @@ final class Polytypo
      *
      * $locale is required, with no default -- an unknown locale throws PolytypoException with
      * CODE_UNKNOWN_LOCALE; there is never a fallback to English. $mode is "text" (default),
-     * "html" or "markdown". $dialect is required iff $mode is "markdown" -- but no markdown
-     * dialect is implemented by this runtime (see below), so any markdown call throws
-     * CODE_INVALID_DIALECT. $rules is an opt-out array keyed by rule id.
+     * "html", "markdown" or "yaml". $dialect is required iff $mode is "markdown" -- but no
+     * markdown dialect is implemented by this runtime (see below), so any markdown call throws
+     * CODE_INVALID_DIALECT. $keys is required iff $mode is "yaml" and names the mapping keys
+     * whose scalar values are prose (modes.md 3.8.2); it has no default, because nothing in
+     * YAML's syntax separates "description:" from "run:". $rules is an opt-out array keyed by
+     * rule id.
      *
      * Pure: no I/O, no environment, no clock, no globals, no static mutable state beyond
      * memoized-once, never-mutated-after spec data -- reentrant and safe to call from any
      * context (ARCHITECTURE.md section 7).
      *
      * @param array<string, bool>|null $rules
+     * @param list<string>|null $keys
      */
     public static function transform(
         string $input,
@@ -46,6 +52,7 @@ final class Polytypo
         ?string $dialect = null,
         ?array $rules = null,
         ?string $narrowNbsp = null,
+        ?array $keys = null,
     ): string {
         $resolvedMode = self::resolveMode($mode);
         $narrowTarget = NarrowTarget::resolve($narrowNbsp);
@@ -53,6 +60,7 @@ final class Polytypo
         return match ($resolvedMode) {
             'text' => self::transformText($input, $locale, $dialect, $rules, $narrowTarget),
             'html' => self::transformHtml($input, $locale, $dialect, $rules, $narrowTarget),
+            'yaml' => self::transformYaml($input, $locale, $dialect, $keys, $rules, $narrowTarget),
             // 'markdown': no dialect is implemented by this runtime (verified this session:
             // league/commonmark gives no position data at all on inline text nodes, and no other
             // maintained PHP CommonMark/GFM library with the needed raw-extent span property
@@ -77,6 +85,7 @@ final class Polytypo
      * Pure on the same terms as transform().
      *
      * @param array<string, bool>|null $rules
+     * @param list<string>|null $keys
      * @return Change[]
      */
     public static function analyze(
@@ -86,6 +95,7 @@ final class Polytypo
         ?string $dialect = null,
         ?array $rules = null,
         ?string $narrowNbsp = null,
+        ?array $keys = null,
     ): array {
         $resolvedMode = self::resolveMode($mode);
         $narrowTarget = NarrowTarget::resolve($narrowNbsp);
@@ -93,6 +103,7 @@ final class Polytypo
         return match ($resolvedMode) {
             'text' => self::analyzeText($input, $locale, $dialect, $rules, $narrowTarget),
             'html' => self::analyzeHtml($input, $locale, $dialect, $rules, $narrowTarget),
+            'yaml' => self::analyzeYaml($input, $locale, $dialect, $keys, $rules, $narrowTarget),
             // 'markdown': not implemented by this runtime, exactly as for transform() -- A1
             // requires analyze() to reject what transform() rejects, with the same code.
             default => self::transformMarkdown($input, $locale, $dialect, $rules),
@@ -103,10 +114,10 @@ final class Polytypo
     {
         return match ($mode) {
             'text' => 'text',
-            'html', 'markdown' => $mode,
+            'html', 'markdown', 'yaml' => $mode,
             default => throw new PolytypoException(
                 PolytypoException::CODE_INVALID_MODE,
-                "unknown mode \"{$mode}\". Expected \"text\", \"html\" or \"markdown\"",
+                "unknown mode \"{$mode}\". Expected \"text\", \"html\", \"markdown\" or \"yaml\"",
             ),
         };
     }
@@ -153,6 +164,71 @@ final class Polytypo
         $cp = Codepoints::toCodepoints($input);
 
         return Runner::runOverSpans($cp, $spans, $plan, $localeData, $ctx);
+    }
+
+    /**
+     * "yaml" mode: the only pipeline here with no parser dependency at all -- span selection is
+     * the specified scan of modes.md 3.8, not a library. This runtime is half the reason it is
+     * specified rather than delegated: symfony/yaml reports no positions at all, and the
+     * round-trip guarantee needs them. There is likewise no CODE_MALFORMED_INPUT counterpart --
+     * with no declared grammar to violate, a file that is not YAML yields few spans or none and
+     * comes back byte for byte (modes.md 3.8.3). The only throw this mode adds is $keys, which is
+     * about the call and not the input.
+     *
+     * @param list<string>|null $keys
+     * @param array<string, bool>|null $rules
+     */
+    private static function transformYaml(
+        string $input,
+        string $locale,
+        ?string $dialect,
+        ?array $keys,
+        ?array $rules,
+        int $narrowTarget,
+    ): string {
+        if ($dialect !== null) {
+            throw new PolytypoException(
+                PolytypoException::CODE_INVALID_DIALECT,
+                '"dialect" is only valid when mode is "markdown"',
+            );
+        }
+        [$resolvedLocale, $localeData, $plan] = Pipeline::prepare($locale, $rules);
+        $resolvedKeys = YamlKeys::resolve($keys);
+        $spans = Yaml::yamlSpans($input, $resolvedKeys);
+        $ctx = new RuleContext(mode: 'yaml', dialect: null, locale: $resolvedLocale, narrowTarget: $narrowTarget);
+        $cp = Codepoints::toCodepoints($input);
+
+        return Runner::runOverSpans($cp, $spans, $plan, $localeData, $ctx);
+    }
+
+    /**
+     * analyze.md section 1, "yaml" mode: offsets are into the document, not into a span
+     * (analyze.md section 6).
+     *
+     * @param list<string>|null $keys
+     * @param array<string, bool>|null $rules
+     * @return Change[]
+     */
+    private static function analyzeYaml(
+        string $input,
+        string $locale,
+        ?string $dialect,
+        ?array $keys,
+        ?array $rules,
+        int $narrowTarget,
+    ): array {
+        if ($dialect !== null) {
+            throw new PolytypoException(
+                PolytypoException::CODE_INVALID_DIALECT,
+                '"dialect" is only valid when mode is "markdown"',
+            );
+        }
+        [$resolvedLocale, $localeData, $plan] = Pipeline::prepare($locale, $rules);
+        $resolvedKeys = YamlKeys::resolve($keys);
+        $spans = Yaml::yamlSpans($input, $resolvedKeys);
+        $ctx = new RuleContext(mode: 'yaml', dialect: null, locale: $resolvedLocale, narrowTarget: $narrowTarget);
+
+        return Runner::analyzeOverSpans(Codepoints::toCodepoints($input), $spans, $plan, $localeData, $ctx);
     }
 
     /**

@@ -21,8 +21,8 @@
 
 This is the PHP implementation. The full spec — all locales, all rules, worked examples in each —
 lives in [polytypo/polytypo](https://github.com/polytypo/polytypo). This runtime supports the
-`text` and `html` modes fully. `markdown` mode is **not implemented** for either dialect in this
-runtime (see [Markdown mode](#markdown-mode)).
+`text`, `html` and `yaml` modes fully. `markdown` mode is **not implemented** for either dialect
+in this runtime (see [Markdown mode](#markdown-mode)).
 
 ## Install
 
@@ -63,9 +63,34 @@ accepts PHP named arguments:
 Polytypo::transform($input, 'fr', mode: 'html', rules: ['ranges' => true]);
 ```
 
+`yaml` mode is the one that asks something of you, and it asks for a reason. YAML is a data format
+with prose in some of it, so you name the keys whose values are prose; there is no default and no
+guess:
+
+```php
+Polytypo::transform(
+    "summary: Rates -- all of them...\nrun: git diff -- a--b\n",
+    'en-US',
+    mode: 'yaml',
+    keys: ['summary'],
+);
+// => "summary: Rates—all of them…\nrun: git diff -- a--b\n"
+```
+
+Nothing in YAML's syntax separates a sentence from a shell script: `description` holds one and
+`run` holds the other, spelled identically. Quoting, indentation, anchors and a block scalar's
+chomping indicator are never decoded and rewritten — the file is located, not re-emitted — so the
+trailing newlines of a `|+` block come back exactly as you wrote them. An empty `keys` array is
+legal and processes nothing.
+
+`yaml` is also the one mode this runtime could implement without a parser, and that is not a
+coincidence: `symfony/yaml` reports no source positions at all, so there was never a parser to
+delegate to. The scan is specified in the spec (`modes.md` §3.8) and written here by hand, the
+same way every rule is.
+
 `Polytypo::analyze` runs the same pipeline and reports what it would do instead of doing it — one
 `Polytypo\Change` per edit, each with the rule that made it and code-point offsets into the input
-you passed (into the **document**, in `html` mode, not into a span):
+you passed (into the **document**, in `html` and `yaml` mode, not into a span):
 
 ```php
 Polytypo::analyze('Wait... "really"?', 'en-US');

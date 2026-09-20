@@ -62,10 +62,14 @@ final class ConformanceTest extends TestCase
         // so carrying it into the idempotency re-run is contract (ARCHITECTURE.md 6.1), not
         // convenience.
         $narrowNbsp = $case['narrowNbsp'] ?? null;
+        // modes.md 3.8.2: `keys` has no default, so an absent one must stay null rather than
+        // become an empty list -- the two mean different things to the option check.
+        /** @var list<string>|null $keys */
+        $keys = $case['keys'] ?? null;
 
         if (isset($case['throws'])) {
             try {
-                Polytypo::transform($case['in'], $locale, mode: $mode, rules: $rules, narrowNbsp: $narrowNbsp);
+                Polytypo::transform($case['in'], $locale, mode: $mode, rules: $rules, narrowNbsp: $narrowNbsp, keys: $keys);
                 self::fail('expected ' . $case['throws'] . ' to be thrown');
             } catch (PolytypoException $e) {
                 self::assertSame($case['throws'], $e->getErrorCode());
@@ -75,11 +79,11 @@ final class ConformanceTest extends TestCase
         }
 
         $expected = $case['out'];
-        $got = Polytypo::transform($case['in'], $locale, mode: $mode, rules: $rules, narrowNbsp: $narrowNbsp);
+        $got = Polytypo::transform($case['in'], $locale, mode: $mode, rules: $rules, narrowNbsp: $narrowNbsp, keys: $keys);
         self::assertSame($expected, $got, "out = " . self::escape($got) . ', want ' . self::escape($expected));
 
         // Free coverage, and the most common port bug (ARCHITECTURE.md 6.1).
-        $twice = Polytypo::transform($expected, $locale, mode: $mode, rules: $rules, narrowNbsp: $narrowNbsp);
+        $twice = Polytypo::transform($expected, $locale, mode: $mode, rules: $rules, narrowNbsp: $narrowNbsp, keys: $keys);
         self::assertSame($expected, $twice, 'not idempotent: transform(out) = ' . self::escape($twice));
     }
 

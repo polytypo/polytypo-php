@@ -55,7 +55,7 @@ final class AnalyzeTest extends TestCase
     public function testRejectsAnUnknownMode(): void
     {
         try {
-            Polytypo::analyze('x', 'en-US', 'yaml');
+            Polytypo::analyze('x', 'en-US', 'asciidoc');
             $this->fail('expected an exception');
         } catch (PolytypoException $e) {
             $this->assertSame(PolytypoException::CODE_INVALID_MODE, $e->getErrorCode());
@@ -114,8 +114,11 @@ final class AnalyzeTest extends TestCase
             }
             $locale = $case['locale'];
             $rules = $case['rules'] ?? null;
-            $changed = Polytypo::transform($case['in'], $locale, $case['mode'], null, $rules) !== $case['in'];
-            $reported = Polytypo::analyze($case['in'], $locale, $case['mode'], null, $rules) !== [];
+            /** @var list<string>|null $keys */
+            $keys = $case['keys'] ?? null;
+            $changed = Polytypo::transform($case['in'], $locale, $case['mode'], null, $rules, null, $keys)
+                !== $case['in'];
+            $reported = Polytypo::analyze($case['in'], $locale, $case['mode'], null, $rules, null, $keys) !== [];
             if ($changed !== $reported) {
                 $offenders[] = $key;
             }
