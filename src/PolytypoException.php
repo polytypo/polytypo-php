@@ -21,6 +21,9 @@ final class PolytypoException extends \RuntimeException
     public const CODE_MALFORMED_LOCALE_DATA = 'POLYTYPO_MALFORMED_LOCALE_DATA';
     public const CODE_RULE_CONTRACT = 'POLYTYPO_RULE_CONTRACT';
     public const CODE_MALFORMED_INPUT = 'POLYTYPO_MALFORMED_INPUT';
+    // Spec 1.3.0. Deliberately general: every option added from 1.3.0 on shares this code, while
+    // `mode` and `dialect` keep their own because callers branch on them.
+    public const CODE_INVALID_OPTION = 'POLYTYPO_INVALID_OPTION';
 
     private readonly string $errorCode;
 

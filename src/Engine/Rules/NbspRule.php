@@ -194,7 +194,7 @@ final class NbspRule
      * @param array<string, mixed> $localeData
      * @return array<string, mixed>
      */
-    private static function prepare(array $localeData): array
+    private static function prepare(array $localeData, int $narrowTarget = 0x202F): array
     {
         $data = $localeData['nbsp'];
 
@@ -248,7 +248,7 @@ final class NbspRule
                 continue;
             }
 
-            $target = $pair['innerSpace'] === 'nbsp' ? self::NBSP : self::NNBSP;
+            $target = $pair['innerSpace'] === 'nbsp' ? self::NBSP : $narrowTarget;
             $quotePairs[] = ['open' => $openCp, 'close' => $closeCp, 'target' => $target];
         }
 
@@ -929,11 +929,15 @@ final class NbspRule
      */
     public static function scan(array $cp, array $localeData, RuleContext $ctx): array
     {
-        $prep = self::prepare($localeData);
+        $prep = self::prepare($localeData, $ctx->narrowTarget);
         $claims = array_fill(0, count($cp) + 1, null);
 
-        self::punctuationSubRule($cp, $prep, $claims, $prep['beforePunctuation'], self::NBSP, self::NNBSP);       // N1
-        self::punctuationSubRule($cp, $prep, $claims, $prep['narrowBeforePunctuation'], self::NNBSP, self::NBSP); // N2
+        self::punctuationSubRule($cp, $prep, $claims, $prep['beforePunctuation'], self::NBSP, self::NNBSP); // N1
+        // N2's target is NARROW-TARGET (nbsp.md 3.1a); the last argument is the NOBREAK member
+        // that is not the target, which is what the sub-rule converts. With the substitution on,
+        // N2 and N1 want the same character -- never different ones.
+        $narrowOther = $ctx->narrowTarget === self::NBSP ? self::NNBSP : self::NBSP;
+        self::punctuationSubRule($cp, $prep, $claims, $prep['narrowBeforePunctuation'], $ctx->narrowTarget, $narrowOther); // N2
         self::shortWordsSubRule($cp, $prep, $claims);                                                             // N3
         self::abbreviationsSubRule($cp, $prep, $claims);                                                          // N4
         self::unitsSubRule($cp, $prep, $claims);                                                                  // N5
