@@ -334,4 +334,101 @@ final class QuoteAmbiguity
 
         return $ambiguous;
     }
+
+    /**
+     * Span-boundary elision veto (quotes.md 3.2, spec 1.4.0, canonical issue #53 1).
+     *
+     * Fires only where one literal neighbour of a NARROW mark IS modes.md 3.2's inline MARKER --
+     * the marker stands exactly where the attaching word would be, which is why the
+     * medial-elision veto cannot see the shape and why a possessive or elision written flush
+     * against a span was classified as a quotation candidate and inverted the enclosing pair.
+     *
+     * The attaching side is read as a MAXIMAL LETTER run bounded by a non-ALNUM code point and
+     * compared whole: a prefix test would match the entry "s" inside "sure" and eat
+     * <em>'sure'</em>, a genuine quotation. The comparison folds the RUN's first code point,
+     * ASCII A-Z only, and is exact thereafter -- never mb_strtolower or strtolower, both of
+     * which are locale dependent and banned in a rule (ARCHITECTURE.md 4.4).
+     *
+     * Keyed off the marker and never off the mode: a mode conditional is forbidden (modes.md
+     * 7.4), which is also why text mode needs no separate path -- it produces no marker.
+     *
+     * @param array{before?: array<int, string>, after?: array<int, string>} $clitics
+     * @return array<int, true>
+     */
+    public static function computeSpanBoundaryVetoIndices(array $cp, array $clitics): array
+    {
+        $before = $clitics['before'] ?? [];
+        $after = $clitics['after'] ?? [];
+        if ($before === [] && $after === []) {
+            return [];
+        }
+
+        $beforeCps = array_map(Codepoints::toCodepoints(...), $before);
+        $afterCps = array_map(Codepoints::toCodepoints(...), $after);
+        $vetoed = [];
+
+        $n = count($cp);
+        for ($i = 0; $i < $n; $i++) {
+            if (!self::isNarrow($cp[$i])) {
+                continue;
+            }
+            if (
+                $afterCps !== [] && self::at($cp, $i - 1) === Sentinels::MARKER
+                && self::runMatches($cp, $i, 1, $afterCps)
+            ) {
+                $vetoed[$i] = true;
+                continue;
+            }
+            if (
+                $beforeCps !== [] && self::at($cp, $i + 1) === Sentinels::MARKER
+                && self::runMatches($cp, $i, -1, $beforeCps)
+            ) {
+                $vetoed[$i] = true;
+            }
+        }
+
+        return $vetoed;
+    }
+
+    /**
+     * The maximal LETTER run adjacent to the mark at $i, growing in $dir, compared against
+     * $entries. Declines an empty run, and one an ALNUM code point continues past -- that bound
+     * is what makes the run the WHOLE fragment rather than a prefix of one.
+     *
+     * @param array<int, array<int, int>> $entries
+     */
+    private static function runMatches(array $cp, int $i, int $dir, array $entries): bool
+    {
+        $n = count($cp);
+        $j = $i + $dir;
+        while ($j >= 0 && $j < $n && UnicodeUtil::isLetter($cp[$j])) {
+            $j += $dir;
+        }
+        if ($j === $i + $dir) {
+            return false;
+        }
+        $outer = self::at($cp, $j);
+        if ($outer !== Sentinels::NONE && self::isAlnum($outer)) {
+            return false;
+        }
+
+        $start = $dir === -1 ? $j + 1 : $i + 1;
+        $end = $dir === -1 ? $i - 1 : $j - 1;
+        $length = $end - $start + 1;
+
+        foreach ($entries as $entry) {
+            if (count($entry) !== $length) {
+                continue;
+            }
+            $same = self::asciiLower($cp[$start]) === $entry[0];
+            for ($k = 1; $same && $k < $length; $k++) {
+                $same = $cp[$start + $k] === $entry[$k];
+            }
+            if ($same) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

@@ -256,7 +256,7 @@ final class QuotesRule
      * @param array<int, array{left: string, elided: string, right: string}> $idioms
      * @return array<int, array{index: int, wide: bool, canOpen: bool, canClose: bool}>
      */
-    private static function collectCandidates(array $cp, array $skipSets, array $idioms): array
+    private static function collectCandidates(array $cp, array $skipSets, array $idioms, array $clitics): array
     {
         $n = count($cp);
         $candidates = [];
@@ -265,8 +265,11 @@ final class QuotesRule
         // and the general ambiguous-medial-span shape (quotes.md 3.2a) -- quotes must decline
         // pairing for both, so apostrophe's own case ladder never independently "fixes" a shape
         // quotes left alone.
+        // spec 1.4.0 adds a third member to the same union: the span-boundary elision veto,
+        // which fires only where one literal neighbour is the inline MARKER (quotes.md 3.2).
         $elisionVetoed = QuoteAmbiguity::computeIdiomMatchedIndices($cp, $idioms)
-            + QuoteAmbiguity::computeAmbiguousShapeIndices($cp);
+            + QuoteAmbiguity::computeAmbiguousShapeIndices($cp)
+            + QuoteAmbiguity::computeSpanBoundaryVetoIndices($cp, $clitics);
 
         for ($i = 0; $i < $n; $i++) {
             $g = $cp[$i];
@@ -509,7 +512,7 @@ final class QuotesRule
      * @param array<int, array{left: string, elided: string, right: string}> $idioms
      * @return array<int, array{open: int, close: int}>
      */
-    private static function certify(array $cp, array $initial, array $quotesData, array $skipSets, array $idioms): array
+    private static function certify(array $cp, array $initial, array $quotesData, array $skipSets, array $idioms, array $clitics): array
     {
         $accepted = array_values($initial);
         // Each round accepts or strictly shrinks `accepted`; it is finite and the empty set
@@ -524,7 +527,7 @@ final class QuotesRule
 
             $plan = self::computeRenderPlan($cp, $accepted, $quotesData);
             [$y, $m] = self::applyRenderPlan($cp, $plan);
-            $rederived = self::pairCandidates($y, self::collectCandidates($y, $skipSets, $idioms));
+            $rederived = self::pairCandidates($y, self::collectCandidates($y, $skipSets, $idioms, $clitics));
 
             $bSet = [];
             foreach ($rederived as $p) {
@@ -634,9 +637,10 @@ final class QuotesRule
     {
         $quotesData = $localeData['quotes'];
         $idioms = $quotesData['elisionIdioms'] ?? [];
+        $clitics = $quotesData['elisionClitics'] ?? [];
         $skipSets = self::computeSkipSets($quotesData);
 
-        $candidates = self::collectCandidates($cp, $skipSets, $idioms);
+        $candidates = self::collectCandidates($cp, $skipSets, $idioms, $clitics);
         if ($candidates === []) {
             return [];
         }
@@ -646,7 +650,7 @@ final class QuotesRule
             return [];
         }
 
-        $accepted = self::certify($cp, $initialPairs, $quotesData, $skipSets, $idioms);
+        $accepted = self::certify($cp, $initialPairs, $quotesData, $skipSets, $idioms, $clitics);
         if ($accepted === []) {
             return [];
         }
