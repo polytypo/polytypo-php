@@ -164,6 +164,25 @@ final class ApostropheRule
     }
 
     /**
+     * CLOSEDELIM -- apostrophe.md 3.1 (spec 1.5.0, case 2a): the bracket and quotation members
+     * of CLOSEISH, without its sentence punctuation and without the dashes OPENISH already
+     * carries. These are exactly the closing delimiters case 3 has always accepted on the mark's
+     * RIGHT; before 1.5.0 no left-hand test accepted any of them. Sentinels::MARKER is not a
+     * member (modes.md 3.3): it is in OPENISH, so a mark against a span boundary already reaches
+     * case 4 and emits the same U+2019.
+     */
+    private static function isCloseDelim(int $cp): bool
+    {
+        return $cp === self::PAREN_CLOSE
+            || $cp === self::SQUARE_CLOSE
+            || $cp === self::CURLY_CLOSE
+            || $cp === self::RIGHT_POINTING_DOUBLE_ANGLE_QUOTATION_MARK
+            || $cp === self::RIGHT_SINGLE_QUOTATION_MARK
+            || $cp === self::RIGHT_DOUBLE_QUOTATION_MARK
+            || $cp === self::SINGLE_RIGHT_POINTING_ANGLE_QUOTATION_MARK;
+    }
+
+    /**
      * The case ladder of apostrophe.md 3.3, first match wins. Every verdict is a pure function of
      * exactly two neighbouring code points; there is no lookahead and no state carried between
      * candidates.
@@ -178,6 +197,13 @@ final class ApostropheRule
 
         // Case 2 -- medial apostrophe: `don't`, `l'ete`, `O'Brien`, `1990's`.
         if (self::isAlnum($left) && self::isAlnum($right)) {
+            return true;
+        }
+
+        // Case 2a -- suffix or possessive after a closing delimiter (spec 1.5.0):
+        // `(order 90)'s`, `“Hamlet”'s`, `{user}'s`. Disjoint from every other case, so its
+        // position in the ladder carries no behaviour.
+        if (self::isCloseDelim($left) && self::isAlnum($right)) {
             return true;
         }
 
