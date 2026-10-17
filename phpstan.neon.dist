@@ -21,3 +21,7 @@ parameters:
           path: tests/*
         - identifier: missingType.generics
           path: tests/*
+        # Eris's Generators::elements() is untyped in its docblock, so a newer PHPStan reports its
+        # return type as unresolvable at every call; the properties still run and fail loudly.
+        - identifier: staticMethod.unresolvableReturnType
+          path: tests/*
