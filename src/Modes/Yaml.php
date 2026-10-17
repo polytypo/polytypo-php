@@ -374,11 +374,11 @@ final class Yaml
     }
 
     /**
-     * 3.8.6. The span is the content between the quotes. Both bails exist so that source
-     * characters and content characters are the same thing, which the offset model of 3.1 requires
-     * -- the same constraint that makes an HTML character reference an opaque unit in 3.6. No
-     * colon test applies here: quoting neutralises the colon, and applying the plain-scalar test
-     * would decline `title: "Chapter 1: the beginning"`.
+     * 3.8.6. The span is the content between the quotes. The double-quoted backslash bail exists so
+     * that source characters and content characters are the same thing, which the offset model of
+     * 3.1 requires; a single-quoted `''` pair is an opaque two-code-point unit outside every span,
+     * like an HTML character reference in 3.6. No colon test applies here: quoting neutralises the
+     * colon, and applying the plain-scalar test would decline `title: "Chapter 1: the beginning"`.
      *
      * @param list<string> $chars
      * @param list<Span> $spans
@@ -387,18 +387,26 @@ final class Yaml
     {
         $quote = $chars[$v];
         $close = -1;
+        $segment = $v + 1;
+        $ranges = [];
         for ($j = $v + 1; $j < $lineEnd; $j++) {
             $c = $chars[$j];
             if ($quote === '"' && $c === '\\') {
                 return;
             }
-            if ($quote === "'" && $c === "'" && $j + 1 < $lineEnd && $chars[$j + 1] === "'") {
-                return;
+            if ($c !== $quote) {
+                continue;
             }
-            if ($c === $quote) {
-                $close = $j;
-                break;
+            if ($quote === "'" && $j + 1 < $lineEnd && $chars[$j + 1] === "'") {
+                if ($j > $segment) {
+                    $ranges[] = [$segment, $j];
+                }
+                $segment = $j + 2;
+                $j++;
+                continue;
             }
+            $close = $j;
+            break;
         }
         if ($close < 0) {
             return;
@@ -412,8 +420,11 @@ final class Yaml
             return;
         }
 
-        if ($close > $v + 1) {
-            $spans[] = new Span($v + 1, $close);
+        if ($close > $segment) {
+            $ranges[] = [$segment, $close];
+        }
+        foreach ($ranges as [$start, $end]) {
+            $spans[] = new Span($start, $end);
         }
     }
 

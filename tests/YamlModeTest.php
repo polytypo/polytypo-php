@@ -142,7 +142,6 @@ final class YamlModeTest extends TestCase
         yield 'an alias' => ["a: *anchor\n"];
         yield 'a tag' => ["a: !!str one two...\n"];
         yield 'a double-quoted scalar with an escape' => ["a: \"one \\\"two\\\"... three\"\n"];
-        yield 'a single-quoted scalar with an escape' => ["a: 'it''s one two...'\n"];
         yield 'a tab anywhere on the line' => ["a:\tone two...\n"];
         yield 'a compact nested sequence' => ["a: - one two...\n"];
         yield 'a compact nested mapping' => ["a: one two .:\n"];
@@ -240,6 +239,17 @@ final class YamlModeTest extends TestCase
         $once = self::yaml($source);
         self::assertCount(count(self::spanText($source)), self::spanText($once));
         self::assertSame($once, self::yaml($once));
+    }
+
+    public function testASingleQuotedEscapeSplitsTheScalarAroundIt(): void
+    {
+        self::assertSame(['it', 's one...two'], self::spanText("a: 'it''s one...two'\n"));
+        self::assertSame(['one...two'], self::spanText("a: '''one...two'''\n"));
+        self::assertSame([], self::spanText("a: ''''\n"));
+        self::assertSame([], self::spanText("a: 'it''s one...two\n"));
+        self::assertSame(['it', 's one...two'], self::spanText("a: 'it''s one...two' # note\n"));
+        self::assertSame([], self::spanText("a: 'it''s one...two' x\n"));
+        self::assertSame("a: 'it''s one\u{2026}two'\n", self::yaml("a: 'it''s one...two'\n"));
     }
 
     public function testTheRoundTripGuarantee(): void
