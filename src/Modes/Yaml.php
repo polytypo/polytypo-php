@@ -109,6 +109,18 @@ final class Yaml
         return false;
     }
 
+    /** @param list<string> $chars */
+    private static function hasLoneCarriageReturn(array $chars, int $start, int $end): bool
+    {
+        for ($i = $start; $i < $end; $i++) {
+            if ($chars[$i] === self::CR) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * 3.8.4 step 3. `---` and `...` at the head of a line, bare or introducing a node: the
      * trailing-content form is declined too, so `--- key: value` never yields a key of
@@ -265,7 +277,13 @@ final class Yaml
             return $next;
         }
 
-        // step 9 -- the scalar form.
+        // step 9 -- a U+000D left inside the line is not a terminator, so no span may touch it;
+        // the value run stays consumed so its continuation lines are not rescanned as mappings.
+        if (self::hasLoneCarriageReturn($chars, $lineStart, $lineEnd)) {
+            return $next;
+        }
+
+        // step 10 -- the scalar form.
         $value = $chars[$v];
         if (in_array($value, self::NON_SCALAR_VALUE_CHARS, true)) {
             return $next;
@@ -337,7 +355,7 @@ final class Yaml
             return;
         }
 
-        // One definition of the run, and three conditions that make the whole block yield no
+        // One definition of the run, and four conditions that make the whole block yield no
         // spans.
         $content = [];
         $contentIndent = -1;
@@ -347,7 +365,7 @@ final class Yaml
             if ($first === $ne) {
                 continue; // blank lines belong to the block and yield no span
             }
-            if (self::hasTab($chars, $ns, $ne)) {
+            if (self::hasTab($chars, $ns, $ne) || self::hasLoneCarriageReturn($chars, $ns, $ne)) {
                 return;
             }
             $nextIndent = $first - $ns;

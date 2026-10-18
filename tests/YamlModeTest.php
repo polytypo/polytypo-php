@@ -252,6 +252,80 @@ final class YamlModeTest extends TestCase
         self::assertSame("a: 'it''s one\u{2026}two'\n", self::yaml("a: 'it''s one...two'\n"));
     }
 
+    public function testALoneCarriageReturnDeclinesItsLineAndNeverLandsInASpan(): void
+    {
+        $keys = ['title'];
+        self::assertSame("title: a\rb -- c\n", self::yaml("title: a\rb -- c\n", 'en-US', $keys));
+        self::assertSame("title: a\u{2014}b\r", self::yaml("title: a -- b\r", 'en-US', $keys));
+        self::assertSame("title: a -- b\r\r", self::yaml("title: a -- b\r\r", 'en-US', $keys));
+        self::assertSame("title: a -- b\r\r\n", self::yaml("title: a -- b\r\r\n", 'en-US', $keys));
+        self::assertSame(
+            "title: |\n  a -- b\n  c\rd -- e\n",
+            self::yaml("title: |\n  a -- b\n  c\rd -- e\n", 'en-US', $keys),
+        );
+        self::assertSame(
+            "summary: a\rb\n  title: c -- d\n",
+            self::yaml("summary: a\rb\n  title: c -- d\n", 'en-US', ['title', 'summary']),
+        );
+    }
+
+    public function testACrlfDocumentStillConverts(): void
+    {
+        self::assertSame("title: a\u{2014}b\r\n", self::yaml("title: a -- b\r\n", 'en-US', ['title']));
+    }
+
+    public function testALineHoldingACarriageReturnAndSpacesIsNotBlankInABlockScalar(): void
+    {
+        self::assertSame(
+            "title: |\n  a\u{2014}b\n\r  \n  c -- d\n",
+            self::yaml("title: |\n  a -- b\n\r  \n  c -- d\n", 'en-US', ['title']),
+        );
+    }
+
+    public function testNoSpanContainsALineTerminatorOverACarriageReturnSweep(): void
+    {
+        $alphabet = ['a', ' ', "\r", "\n", ':', '#', "'", '"', '-', '|'];
+        $templates = [
+            'title: %s',
+            'title: "%s"',
+            "title: '%s'",
+            "title: |\n  %s\n",
+            'title: x -- %s',
+            "%s\ntitle: a -- b\n",
+            "title: a\r\n  %s\r\n",
+        ];
+        $payloads = [''];
+        $frontier = [''];
+        for ($n = 0; $n < 3; $n++) {
+            $next = [];
+            foreach ($frontier as $prefix) {
+                foreach ($alphabet as $ch) {
+                    $next[] = $prefix . $ch;
+                }
+            }
+            $payloads = array_merge($payloads, $next);
+            $frontier = $next;
+        }
+
+        $broken = [];
+        foreach ($templates as $template) {
+            foreach ($payloads as $payload) {
+                $doc = sprintf($template, $payload);
+                foreach (self::spanText($doc) as $text) {
+                    if (str_contains($text, "\r") || str_contains($text, "\n")) {
+                        $broken[] = $doc;
+                    }
+                }
+                $once = self::yaml($doc);
+                if (self::yaml($once) !== $once) {
+                    $broken[] = $doc;
+                }
+            }
+        }
+
+        self::assertSame([], array_slice($broken, 0, 5));
+    }
+
     public function testTheRoundTripGuarantee(): void
     {
         $source = "a: one two\nb: 'it''s'\nc: [x, y]\n#comment\n";
