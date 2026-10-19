@@ -53,7 +53,54 @@ final class Yaml
             $li = self::scanLine($chars, $lines, $li, $keys, $spans);
         }
 
-        return $spans;
+        return self::dropCarriageReturnRegions($chars, $lines, $spans);
+    }
+
+    /**
+     * 3.8.4's carriage-return region: a line containing a U+000D yields no spans, and neither does
+     * any later line up to the first one that is non-empty, does not begin with U+0020 and
+     * contains none. It removes spans and never adds one.
+     *
+     * @param list<string> $chars
+     * @param list<array{int, int}> $lines
+     * @param list<Span> $spans
+     * @return list<Span>
+     */
+    private static function dropCarriageReturnRegions(array $chars, array $lines, array $spans): array
+    {
+        $declined = [];
+        $inRegion = false;
+        foreach ($lines as [$ns, $ne]) {
+            $hasCr = false;
+            for ($i = $ns; $i < $ne; $i++) {
+                if ($chars[$i] === self::CR) {
+                    $hasCr = true;
+                    break;
+                }
+            }
+            if ($hasCr) {
+                $inRegion = true;
+            } elseif ($ne > $ns && $chars[$ns] !== self::SPACE) {
+                $inRegion = false;
+            }
+            $declined[] = $inRegion;
+        }
+        if (!in_array(true, $declined, true)) {
+            return $spans;
+        }
+
+        $kept = [];
+        $li = 0;
+        foreach ($spans as $span) {
+            while ($li + 1 < count($lines) && $span->start >= $lines[$li + 1][0]) {
+                $li++;
+            }
+            if (!$declined[$li]) {
+                $kept[] = $span;
+            }
+        }
+
+        return $kept;
     }
 
     /**
@@ -195,6 +242,186 @@ final class Yaml
     }
 
     /**
+     * 3.8.4 step 7: a line of the value run that is not blank. Blank lines alone are not one.
+     *
+     * @param list<string> $chars
+     * @param list<array{int, int}> $lines
+     */
+    private static function hasContinuation(array $chars, array $lines, int $li, int $runEnd): bool
+    {
+        for ($k = $li + 1; $k < $runEnd; $k++) {
+            [$ns, $ne] = $lines[$k];
+            if (self::firstNonSpace($chars, $ns, $ne) !== $ne) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * 3.8.4 step 5: the index of the quote that closes the one at `$q`, or -1. In a double-quoted
+     * scalar a U+005C and the code point after it never close the quote, which decodes nothing:
+     * no YAML escape ends in anything that would be a closing quote. A quote not closed on the
+     * line returns -1.
+     *
+     * @param list<string> $chars
+     */
+    private static function closingQuote(array $chars, int $lineEnd, int $q): int
+    {
+        $quote = $chars[$q];
+        for ($j = $q + 1; $j < $lineEnd; $j++) {
+            $c = $chars[$j];
+            if ($quote === '"' && $c === '\\') {
+                $j++;
+                continue;
+            }
+            if ($c !== $quote) {
+                continue;
+            }
+            if ($quote === "'" && $j + 1 < $lineEnd && $chars[$j + 1] === "'") {
+                $j++;
+                continue;
+            }
+
+            return $j;
+        }
+
+        return -1;
+    }
+
+    /**
+     * 3.8.4 step 3: the next line that begins in column 0 with a document marker.
+     *
+     * @param list<string> $chars
+     * @param list<array{int, int}> $lines
+     */
+    private static function documentRunEnd(array $chars, array $lines, int $li): int
+    {
+        $k = $li + 1;
+        while ($k < count($lines) && !self::isDocumentMarker($chars, $lines[$k][0], $lines[$k][1])) {
+            $k++;
+        }
+
+        return $k;
+    }
+
+    /**
+     * 3.8.4 step 5's own-line node: everything up to the first later line that is non-empty and
+     * does not begin with U+0020, because the scan does not track the key above.
+     *
+     * @param list<string> $chars
+     * @param list<array{int, int}> $lines
+     */
+    private static function ownLineRunEnd(array $chars, array $lines, int $li, int $indent): int
+    {
+        if ($indent === 0) {
+            return self::documentRunEnd($chars, $lines, $li);
+        }
+        $k = $li + 1;
+        while ($k < count($lines)) {
+            [$nextStart, $nextEnd] = $lines[$k];
+            if ($nextEnd > $nextStart && $chars[$nextStart] !== self::SPACE) {
+                break;
+            }
+            $k++;
+        }
+
+        return $k;
+    }
+
+    /**
+     * 3.8.4 step 4: `-`, `?` or `:` followed by U+0020 or the line end.
+     *
+     * @param list<string> $chars
+     */
+    private static function isNodeMarker(array $chars, int $j, int $to): bool
+    {
+        if ($chars[$j] !== '-' && $chars[$j] !== '?' && $chars[$j] !== ':') {
+            return false;
+        }
+
+        return $j + 1 === $to || $chars[$j + 1] === self::SPACE;
+    }
+
+    /**
+     * 3.8.4 step 5. Returns [colon, keyEnd, declined, openQuote]; colon is -1 for a line with no
+     * key, which is a node line.
+     *
+     * @param list<string> $chars
+     * @return array{int, int, bool, bool}
+     */
+    private static function locateKey(array $chars, int $lineEnd, int $i): array
+    {
+        $first = $chars[$i];
+        if ($first === '"' || $first === "'") {
+            $close = self::closingQuote($chars, $lineEnd, $i);
+            if ($close < 0) {
+                return [-1, -1, false, true];
+            }
+            $p = $close + 1;
+            while ($p < $lineEnd && $chars[$p] === self::SPACE) {
+                $p++;
+            }
+            if ($p < $lineEnd && self::isIndicatorColon($chars, $p, $lineEnd)) {
+                return [$p, $close + 1, true, false];
+            }
+
+            return [-1, -1, false, false];
+        }
+        if (in_array($first, ['{', '[', '&', '*', '!'], true)) {
+            return [-1, -1, false, false];
+        }
+
+        $declined = false;
+        for ($j = $i; $j < $lineEnd; $j++) {
+            $c = $chars[$j];
+            if ($c === '#' && $chars[$j - 1] === self::SPACE) {
+                break;
+            }
+            if (self::isIndicatorColon($chars, $j, $lineEnd)) {
+                $keyEnd = $j;
+                while ($keyEnd > $i && $chars[$keyEnd - 1] === self::SPACE) {
+                    $keyEnd--;
+                }
+
+                return [$j, $keyEnd, $declined, false];
+            }
+            if (in_array($c, self::DECLINING_KEY_CHARS, true)) {
+                $declined = true;
+            }
+        }
+
+        return [-1, -1, false, false];
+    }
+
+    /**
+     * 3.8.4 step 7: whether a declined key's value can continue on the next line.
+     *
+     * @param list<string> $chars
+     */
+    private static function declinedValueOpen(array $chars, int $lineEnd, int $v): bool
+    {
+        $value = $chars[$v];
+        if (in_array($value, ['|', '>', '{', '[', '&', '!'], true)) {
+            return true;
+        }
+        if ($value !== '"' && $value !== "'") {
+            return false;
+        }
+        $close = self::closingQuote($chars, $lineEnd, $v);
+        if ($close < 0) {
+            return true;
+        }
+        $p = $close + 1;
+        while ($p < $lineEnd && $chars[$p] === self::SPACE) {
+            $p++;
+        }
+
+        return $p < $lineEnd && $chars[$p] !== '#';
+    }
+
+    /**
      * One step of 3.8.4. Returns the index of the next line to scan.
      *
      * @param list<string> $chars
@@ -207,55 +434,59 @@ final class Yaml
         [$lineStart, $lineEnd] = $lines[$li];
         $skipLine = $li + 1;
 
-        // step 1 -- blank, or a tab anywhere, which makes indentation undecidable.
+        // step 1 -- blank. A tab makes indentation undecidable, so the line and whatever it
+        // absorbs yield no spans, but steps 2 to 7 still decide what it absorbs.
         $start = self::firstNonSpace($chars, $lineStart, $lineEnd);
-        if ($start === $lineEnd || self::hasTab($chars, $lineStart, $lineEnd)) {
+        if ($start === $lineEnd) {
             return $skipLine;
         }
+        $isQuiet = self::hasTab($chars, $lineStart, $lineEnd);
         $indent = $start - $lineStart;
 
-        // steps 2 and 3 -- comment, directive, document marker.
+        // steps 2 and 3 -- comment, directive, document marker. A marker with a node after it
+        // absorbs the document.
         if ($chars[$start] === '#' || $chars[$start] === '%') {
             return $skipLine;
         }
         if (self::isDocumentMarker($chars, $start, $lineEnd)) {
-            return $skipLine;
+            $p = $start + 3;
+            while ($p < $lineEnd && $chars[$p] === self::SPACE) {
+                $p++;
+            }
+            if ($p >= $lineEnd || $chars[$p] === '#') {
+                return $skipLine;
+            }
+
+            return $indent === 0 ? self::documentRunEnd($chars, $lines, $li) : $skipLine;
         }
 
-        // step 4 -- block sequence entries are consumed, not skipped; `- - key: v` nests.
+        // step 4 -- node markers are consumed, not skipped; `- - key: v` nests.
         $i = $start;
-        while ($i < $lineEnd && self::isSequenceDash($chars, $i, $lineEnd)) {
+        while ($i < $lineEnd && self::isNodeMarker($chars, $i, $lineEnd)) {
             $i += 2;
             while ($i < $lineEnd && $chars[$i] === self::SPACE) {
                 $i++;
             }
         }
-        if ($i >= $lineEnd) {
+        if ($i >= $lineEnd || $chars[$i] === '#') {
             return $skipLine;
         }
 
         // step 5 -- find the key. A colon NOT followed by U+0020 or the line end is an ordinary
         // key character, so `a:b: v` has the key `a:b`; stating that keeps five scanners agreeing.
-        $keyStart = $i;
-        $colon = -1;
-        for ($j = $i; $j < $lineEnd; $j++) {
-            if (in_array($chars[$j], self::DECLINING_KEY_CHARS, true)) {
-                return $skipLine;
-            }
-            if (self::isIndicatorColon($chars, $j, $lineEnd)) {
-                $colon = $j;
-                break;
-            }
-        }
+        [$colon, $keyEnd, $declined, $openQuote] = self::locateKey($chars, $lineEnd, $i);
+
+        // No key: the line is a node of its own, and it absorbs its value run. One that opens a
+        // flow collection, a block scalar or a quote and sits on a line of its own absorbs the
+        // region.
         if ($colon < 0) {
-            return $skipLine;
-        }
-        $keyEnd = $colon;
-        while ($keyEnd > $keyStart && $chars[$keyEnd - 1] === self::SPACE) {
-            $keyEnd--;
-        }
-        if ($keyEnd <= $keyStart) {
-            return $skipLine;
+            $isOwnLine = $i === $start
+                && ($openQuote || in_array($chars[$i], ['{', '[', '|', '>'], true));
+            if ($isOwnLine) {
+                return self::ownLineRunEnd($chars, $lines, $li, $indent);
+            }
+
+            return self::valueRunEnd($chars, $lines, $li, $indent);
         }
 
         // step 6 -- an empty value means a nested node, whose lines ARE scanned on their own.
@@ -267,23 +498,26 @@ final class Yaml
             return $skipLine;
         }
 
-        // step 7 -- the line carries an inline value, so its continuation lines belong to it.
+        // step 7 -- the line carries an inline value, so its continuation lines belong to it. A
+        // declined key's value absorbs them only if it can continue on the next line.
+        if ($declined) {
+            return self::declinedValueOpen($chars, $lineEnd, $v)
+                ? self::valueRunEnd($chars, $lines, $li, $indent)
+                : $skipLine;
+        }
         $next = self::valueRunEnd($chars, $lines, $li, $indent);
 
         // step 8 -- the key must be listed. Checked before the value's form, so an unlisted key
         // costs nothing to decline: this is what makes `run:`, `if:` and `image:` unreachable.
-        $key = implode('', array_slice($chars, $keyStart, $keyEnd - $keyStart));
+        $key = implode('', array_slice($chars, $i, $keyEnd - $i));
         if (!isset($keys[$key])) {
             return $next;
         }
-
-        // step 9 -- a U+000D left inside the line is not a terminator, so no span may touch it;
-        // the value run stays consumed so its continuation lines are not rescanned as mappings.
-        if (self::hasLoneCarriageReturn($chars, $lineStart, $lineEnd)) {
+        if ($isQuiet) {
             return $next;
         }
 
-        // step 10 -- the scalar form.
+        // step 9 -- the scalar form.
         $value = $chars[$v];
         if (in_array($value, self::NON_SCALAR_VALUE_CHARS, true)) {
             return $next;
@@ -294,13 +528,13 @@ final class Yaml
             return $next;
         }
         if ($value === '"' || $value === "'") {
-            if ($next === $li + 1) {
+            if (!self::hasContinuation($chars, $lines, $li, $next)) {
                 self::quotedScalar($chars, $lineEnd, $v, $spans);
             }
 
             return $next;
         }
-        if ($next === $li + 1) {
+        if (!self::hasContinuation($chars, $lines, $li, $next)) {
             self::plainScalar($chars, $lineEnd, $v, $spans);
         }
 
