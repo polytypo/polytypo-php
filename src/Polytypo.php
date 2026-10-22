@@ -6,6 +6,7 @@ namespace Polytypo;
 
 use Polytypo\Engine\Codepoints;
 use Polytypo\Engine\NarrowTarget;
+use Polytypo\Engine\Protect;
 use Polytypo\Engine\YamlKeys;
 use Polytypo\Engine\Pipeline;
 use Polytypo\Engine\RuleContext;
@@ -42,8 +43,16 @@ final class Polytypo
      * memoized-once, never-mutated-after spec data -- reentrant and safe to call from any
      * context (ARCHITECTURE.md section 7).
      *
+     * $protect is "text" mode only (modes.md 3.9): a list of ['start' => int, 'end' => int]
+     * ranges of $input, in Unicode code points (not bytes), half-open, ascending and
+     * non-overlapping, that the rules treat as opaque content and return byte for byte. Anything
+     * malformed, and any non-empty list in another mode, throws CODE_INVALID_OPTION; null and [] are
+     * the same call. A call that edits the text before a range moves it, so a second call over the
+     * output needs the ranges re-located in that output.
+     *
      * @param array<string, bool>|null $rules
      * @param list<string>|null $keys
+     * @param list<array{start: int, end: int}>|null $protect anything else throws CODE_INVALID_OPTION
      */
     public static function transform(
         string $input,
@@ -53,14 +62,15 @@ final class Polytypo
         ?array $rules = null,
         ?string $narrowNbsp = null,
         ?array $keys = null,
+        mixed $protect = null,
     ): string {
         $resolvedMode = self::resolveMode($mode);
         $narrowTarget = NarrowTarget::resolve($narrowNbsp);
 
         return match ($resolvedMode) {
-            'text' => self::transformText($input, $locale, $dialect, $rules, $narrowTarget),
-            'html' => self::transformHtml($input, $locale, $dialect, $rules, $narrowTarget),
-            'yaml' => self::transformYaml($input, $locale, $dialect, $keys, $rules, $narrowTarget),
+            'text' => self::transformText($input, $locale, $dialect, $rules, $narrowTarget, $protect),
+            'html' => self::transformHtml($input, $locale, $dialect, $rules, $narrowTarget, $protect),
+            'yaml' => self::transformYaml($input, $locale, $dialect, $keys, $rules, $narrowTarget, $protect),
             // 'markdown': no dialect is implemented by this runtime (verified this session:
             // league/commonmark gives no position data at all on inline text nodes, and no other
             // maintained PHP CommonMark/GFM library with the needed raw-extent span property
@@ -86,6 +96,7 @@ final class Polytypo
      *
      * @param array<string, bool>|null $rules
      * @param list<string>|null $keys
+     * @param list<array{start: int, end: int}>|null $protect anything else throws CODE_INVALID_OPTION
      * @return Change[]
      */
     public static function analyze(
@@ -96,14 +107,15 @@ final class Polytypo
         ?array $rules = null,
         ?string $narrowNbsp = null,
         ?array $keys = null,
+        mixed $protect = null,
     ): array {
         $resolvedMode = self::resolveMode($mode);
         $narrowTarget = NarrowTarget::resolve($narrowNbsp);
 
         return match ($resolvedMode) {
-            'text' => self::analyzeText($input, $locale, $dialect, $rules, $narrowTarget),
-            'html' => self::analyzeHtml($input, $locale, $dialect, $rules, $narrowTarget),
-            'yaml' => self::analyzeYaml($input, $locale, $dialect, $keys, $rules, $narrowTarget),
+            'text' => self::analyzeText($input, $locale, $dialect, $rules, $narrowTarget, $protect),
+            'html' => self::analyzeHtml($input, $locale, $dialect, $rules, $narrowTarget, $protect),
+            'yaml' => self::analyzeYaml($input, $locale, $dialect, $keys, $rules, $narrowTarget, $protect),
             // 'markdown': not implemented by this runtime, exactly as for transform() -- A1
             // requires analyze() to reject what transform() rejects, with the same code.
             default => self::transformMarkdown($input, $locale, $dialect, $rules),
@@ -129,6 +141,7 @@ final class Polytypo
         ?string $dialect,
         ?array $rules,
         int $narrowTarget,
+        mixed $protect = null,
     ): string {
         if ($dialect !== null) {
             throw new PolytypoException(
@@ -138,8 +151,11 @@ final class Polytypo
         }
         [, $localeData, $plan] = Pipeline::prepare($locale, $rules);
         $cp = Codepoints::toCodepoints($input);
+        $holes = Protect::resolve($protect, count($cp));
         $ctx = new RuleContext(mode: 'text', dialect: null, locale: $locale, narrowTarget: $narrowTarget);
-        $result = Pipeline::runRules($cp, $plan, $localeData, $ctx);
+        $result = $holes === []
+            ? Pipeline::runRules($cp, $plan, $localeData, $ctx)
+            : Protect::run($cp, $holes, $plan, $localeData, $ctx);
 
         return Codepoints::fromCodepoints($result);
     }
@@ -151,6 +167,7 @@ final class Polytypo
         ?string $dialect,
         ?array $rules,
         int $narrowTarget,
+        mixed $protect = null,
     ): string {
         if ($dialect !== null) {
             throw new PolytypoException(
@@ -159,6 +176,7 @@ final class Polytypo
             );
         }
         [$resolvedLocale, $localeData, $plan] = Pipeline::prepare($locale, $rules);
+        Protect::assertNone($protect, 'html');
         $spans = Html::htmlSpans($input);
         $ctx = new RuleContext(mode: 'html', dialect: null, locale: $resolvedLocale, narrowTarget: $narrowTarget);
         $cp = Codepoints::toCodepoints($input);
@@ -185,6 +203,7 @@ final class Polytypo
         ?array $keys,
         ?array $rules,
         int $narrowTarget,
+        mixed $protect = null,
     ): string {
         if ($dialect !== null) {
             throw new PolytypoException(
@@ -194,6 +213,7 @@ final class Polytypo
         }
         [$resolvedLocale, $localeData, $plan] = Pipeline::prepare($locale, $rules);
         $resolvedKeys = YamlKeys::resolve($keys);
+        Protect::assertNone($protect, 'yaml');
         $spans = Yaml::yamlSpans($input, $resolvedKeys);
         $ctx = new RuleContext(mode: 'yaml', dialect: null, locale: $resolvedLocale, narrowTarget: $narrowTarget);
         $cp = Codepoints::toCodepoints($input);
@@ -216,6 +236,7 @@ final class Polytypo
         ?array $keys,
         ?array $rules,
         int $narrowTarget,
+        mixed $protect = null,
     ): array {
         if ($dialect !== null) {
             throw new PolytypoException(
@@ -225,6 +246,7 @@ final class Polytypo
         }
         [$resolvedLocale, $localeData, $plan] = Pipeline::prepare($locale, $rules);
         $resolvedKeys = YamlKeys::resolve($keys);
+        Protect::assertNone($protect, 'yaml');
         $spans = Yaml::yamlSpans($input, $resolvedKeys);
         $ctx = new RuleContext(mode: 'yaml', dialect: null, locale: $resolvedLocale, narrowTarget: $narrowTarget);
 
@@ -260,6 +282,7 @@ final class Polytypo
         ?string $dialect,
         ?array $rules,
         int $narrowTarget,
+        mixed $protect = null,
     ): array {
         if ($dialect !== null) {
             throw new PolytypoException(
@@ -269,7 +292,11 @@ final class Polytypo
         }
         [, $localeData, $plan] = Pipeline::prepare($locale, $rules);
         $cp = Codepoints::toCodepoints($input);
+        $holes = Protect::resolve($protect, count($cp));
         $ctx = new RuleContext(mode: 'text', dialect: null, locale: $locale, narrowTarget: $narrowTarget);
+        if ($holes !== []) {
+            return Protect::analyze($cp, $holes, $plan, $localeData, $ctx);
+        }
 
         return Pipeline::runRulesRecording($cp, $plan, $localeData, $ctx, array_keys($cp), count($cp));
     }
@@ -284,6 +311,7 @@ final class Polytypo
         ?string $dialect,
         ?array $rules,
         int $narrowTarget,
+        mixed $protect = null,
     ): array {
         if ($dialect !== null) {
             throw new PolytypoException(
@@ -292,6 +320,7 @@ final class Polytypo
             );
         }
         [$resolvedLocale, $localeData, $plan] = Pipeline::prepare($locale, $rules);
+        Protect::assertNone($protect, 'html');
         $spans = Html::htmlSpans($input);
         $ctx = new RuleContext(mode: 'html', dialect: null, locale: $resolvedLocale, narrowTarget: $narrowTarget);
 

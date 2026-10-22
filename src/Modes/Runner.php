@@ -29,7 +29,7 @@ final class Runner
      * @param array<string, mixed> $localeData
      * @return int[]
      */
-    private static function runRulesOverSpans(array $cp, array $plan, array $localeData, RuleContext $ctx): array
+    public static function runRulesOverSpans(array $cp, array $plan, array $localeData, RuleContext $ctx): array
     {
         $current = $cp;
         foreach ($plan as $ruleId) {

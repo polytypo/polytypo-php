@@ -44,6 +44,26 @@ final class Origin
     }
 
     /**
+     * Where a change ends in the input: one past the input offset of the last replaced code point
+     * that has an origin. Scanning forward from the edit's end, as originAt does for a start,
+     * would carry the end across a skipped region or protected run that follows (the boundary
+     * marker has no origin) and report a range containing text the rules never saw
+     * (analyze.md section 2).
+     *
+     * @param int[] $origin
+     */
+    private static function endOf(array $origin, Edit $edit, int $inputLength): int
+    {
+        for ($i = $edit->end - 1; $i >= $edit->start; $i--) {
+            if ($origin[$i] !== self::NO_ORIGIN) {
+                return $origin[$i] + 1;
+            }
+        }
+
+        return self::originAt($origin, $edit->end, $inputLength);
+    }
+
+    /**
      * The origin map for the array Edits::applyEdits is about to produce. A replacement of equal
      * length keeps its origins position by position, which is what makes a conversion
      * (U+0020 -> U+00A0) still point at the character it converted; anything longer is synthetic
@@ -104,7 +124,7 @@ final class Origin
             $changes[] = new Change(
                 ruleId: $ruleId,
                 start: self::originAt($origin, $edit->start, $inputLength),
-                end: self::originAt($origin, $edit->end, $inputLength),
+                end: self::endOf($origin, $edit, $inputLength),
                 before: Codepoints::fromCodepoints(array_slice($cp, $edit->start, $edit->end - $edit->start)),
                 after: Codepoints::fromCodepoints($edit->replacement),
             );

@@ -106,6 +106,27 @@ the space before `:` and `nbsp` puts a no-break one back), so replaying the list
 to reproduce the output. Call `Polytypo::transform` for the text. Full contract:
 `spec/rules/analyze.md`.
 
+`protect` is for `text` mode when the string has holes that no mode knows about: a `${…}` in a
+template literal, an ICU argument, a Django or Handlebars tag. It takes a list of
+`['start' => int, 'end' => int]` ranges of the input, half-open, ascending and non-overlapping,
+and those code points come back exactly as written while the rules read each one as opaque
+content between the text on either side:
+
+```php
+Polytypo::transform('${x} - Rules', 'en-US', protect: [['start' => 0, 'end' => 4]]);
+// => "${x}—Rules"
+Polytypo::transform('${x} - Rules', 'en-GB', protect: [['start' => 0, 'end' => 4]]);
+// => "${x} – Rules"
+```
+
+Offsets are code points, not bytes, so an emoji before a hole counts as one. Anything else —
+a value that is not a list of such ranges, an empty or reversed range, an overlap, a range past
+the end of the input, or a non-empty list in `html` or `yaml` mode — raises `PolytypoException` with
+`POLYTYPO_INVALID_OPTION`; `null` and `[]` are the same call as leaving the option out. Edits
+before a range move it, so a second pass over the output needs the ranges re-located in that
+output. `Polytypo::analyze` accepts `protect` with the same validation, and no reported range
+reaches into a protected run. Full contract: `spec/rules/modes.md` §3.9.
+
 ### Errors
 
 Every error `Polytypo::transform` raises is a `Polytypo\PolytypoException` carrying one of seven

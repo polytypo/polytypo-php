@@ -25,6 +25,11 @@ final class Spans
     {
     }
 
+    public static function isLineTerminator(int $value): bool
+    {
+        return in_array($value, self::LINE_TERMINATORS, true);
+    }
+
     private static function gapIsLineBoundary(array $cp, int $from, int $to): bool
     {
         for ($i = $from; $i < $to; $i++) {
