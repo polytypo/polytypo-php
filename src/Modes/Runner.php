@@ -35,7 +35,12 @@ final class Runner
         foreach ($plan as $ruleId) {
             $fn = Registry::rule($ruleId);
             $edits = $fn($current, $localeData, $ctx);
-            $filtered = Spans::filterBoundaryEdits($current, $edits, Spans::spanRangesOf($current));
+            $filtered = Spans::filterBoundaryEdits(
+                $current,
+                $edits,
+                Spans::spanRangesOf($current),
+                $ctx->mode,
+            );
             if ($filtered === []) {
                 continue;
             }
@@ -127,6 +132,7 @@ final class Runner
                 $current,
                 $edits,
                 Spans::spanRangesOf($current),
+                $ctx->mode,
             ),
         );
     }

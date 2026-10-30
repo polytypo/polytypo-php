@@ -165,6 +165,72 @@ final class Spans
         return null;
     }
 
+    private static function isAsciiPunctuation(?int $c): bool
+    {
+        return $c !== null
+            && (($c >= 0x21 && $c <= 0x2F) || ($c >= 0x3A && $c <= 0x40) || ($c >= 0x5B && $c <= 0x60)
+                || ($c >= 0x7B && $c <= 0x7E));
+    }
+
+    private static function isAsciiAlphanumeric(?int $c): bool
+    {
+        return $c !== null && (($c >= 0x30 && $c <= 0x39) || ($c >= 0x41 && $c <= 0x5A) || ($c >= 0x61 && $c <= 0x7A));
+    }
+
+    /**
+     * modes.md 3.4 escape-and-reference rule, item 1 (markdown only): the edit would put a
+     * backslash-preceded ASCII punctuation mark next to a non-punctuation character, or the reverse.
+     *
+     * @param int[] $cp
+     * @param int[] $replacement
+     */
+    private static function createsEscape(array $cp, int $p, int $q, array $replacement): bool
+    {
+        if ($p - 1 < 0 || $cp[$p - 1] !== 0x5C) {
+            return false;
+        }
+        $before = $cp[$p] ?? null;
+        $after = $replacement !== [] ? $replacement[0] : ($cp[$q + 1] ?? null);
+
+        return self::isAsciiPunctuation($before) !== self::isAsciiPunctuation($after);
+    }
+
+    /**
+     * modes.md 3.4 escape-and-reference rule, item 2 (markdown and html): a deletion that makes
+     * `&`, an optional `#`, one or more ASCII letters or digits and `;` adjacent around the join.
+     *
+     * @param int[] $cp
+     * @param int[] $replacement
+     */
+    private static function createsReference(array $cp, int $p, int $q, array $replacement): bool
+    {
+        if ($replacement !== [] || $p - 1 < 0 || $q + 1 >= count($cp)) {
+            return false;
+        }
+        $left = $p - 1;
+        $alnum = 0;
+        while ($left >= 0 && self::isAsciiAlphanumeric($cp[$left])) {
+            $left--;
+            $alnum++;
+        }
+        $right = $q + 1;
+        if (($cp[$left] ?? null) === 0x26 && ($cp[$right] ?? null) === 0x23 && $alnum === 0) {
+            $right++;
+        }
+        while ($right < count($cp) && self::isAsciiAlphanumeric($cp[$right])) {
+            $right++;
+            $alnum++;
+        }
+        if (($cp[$right] ?? null) !== 0x3B || $alnum === 0) {
+            return false;
+        }
+        if ($left >= 0 && $cp[$left] === 0x23) {
+            $left--;
+        }
+
+        return $left >= 0 && $cp[$left] === 0x26;
+    }
+
     /**
      * modes.md 3.4, two safety nets, both pure functions of (p, q, r, s0, s1):
      *
@@ -178,9 +244,9 @@ final class Spans
      * @param SpanRange[] $ranges
      * @return Edit[]
      */
-    public static function filterBoundaryEdits(array $cp, array $edits, array $ranges): array
+    public static function filterBoundaryEdits(array $cp, array $edits, array $ranges, ?string $mode = null): array
     {
-        return array_values(array_filter($edits, static function (Edit $edit) use ($cp, $ranges): bool {
+        return array_values(array_filter($edits, static function (Edit $edit) use ($cp, $ranges, $mode): bool {
             for ($i = $edit->start; $i < $edit->end; $i++) {
                 if (Sentinels::isMarker($cp[$i])) {
                     return false;
@@ -191,6 +257,15 @@ final class Spans
             $q = $edit->end - 1;
             $d = $edit->end - $edit->start;
             $r = count($edit->replacement);
+            if ($mode === 'markdown' && self::createsEscape($cp, $p, $q, $edit->replacement)) {
+                return false;
+            }
+            if (
+                ($mode === 'markdown' || $mode === 'html')
+                && self::createsReference($cp, $p, $q, $edit->replacement)
+            ) {
+                return false;
+            }
             $span = self::spanContaining($ranges, $p);
             if ($span === null || ($p !== $span->first && $q !== $span->last)) {
                 return true;
