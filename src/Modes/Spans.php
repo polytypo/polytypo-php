@@ -231,6 +231,72 @@ final class Spans
         return $left >= 0 && $cp[$left] === 0x26;
     }
 
+    private static function isX(?int $c): bool
+    {
+        return $c === 0x78 || $c === 0x58;
+    }
+
+    private static function isLabelCharacter(?int $c): bool
+    {
+        return $c !== null && $c !== 0x20 && $c !== 0x5B && $c !== 0x5D;
+    }
+
+    /**
+     * @param int[] $cp
+     */
+    private static function skipSpaces(array $cp, int $i, int $step): int
+    {
+        $n = count($cp);
+        while ($i >= 0 && $i < $n && $cp[$i] === 0x20) {
+            $i += $step;
+        }
+
+        return $i;
+    }
+
+    /**
+     * modes.md 3.4 bracket-shape rule (markdown only, 1.17.5): a deletion that joins a task-list
+     * marker or a footnote label.
+     *
+     * @param int[] $cp
+     * @param int[] $replacement
+     */
+    private static function createsBracketShape(array $cp, int $p, int $q, array $replacement): bool
+    {
+        $isCollapse = $replacement === [0x20];
+        if ($replacement !== [] && !$isCollapse) {
+            return false;
+        }
+        $a = self::skipSpaces($cp, $p - 1, -1);
+        $b = self::skipSpaces($cp, $q + 1, 1);
+        $isEmptyBrackets = ($cp[$a] ?? null) === 0x5B && ($cp[$b] ?? null) === 0x5D;
+        if ($isCollapse || $isEmptyBrackets) {
+            return $isEmptyBrackets;
+        }
+        if (($cp[$a] ?? null) === 0x5B) {
+            if (($cp[$b] ?? null) === 0x5E) {
+                return true;
+            }
+
+            return self::isX($cp[$b] ?? null) && ($cp[self::skipSpaces($cp, $b + 1, 1)] ?? null) === 0x5D;
+        }
+        if (($cp[$b] ?? null) !== 0x5D) {
+            return false;
+        }
+        if (self::isX($cp[$a] ?? null) && ($cp[self::skipSpaces($cp, $a - 1, -1)] ?? null) === 0x5B) {
+            return true;
+        }
+        $run = $a;
+        while ($run >= 0 && self::isLabelCharacter($cp[$run] ?? null)) {
+            $run--;
+        }
+        $first = $run + 1;
+
+        return $a - $first >= 1
+            && ($cp[$first] ?? null) === 0x5E
+            && ($cp[self::skipSpaces($cp, $run, -1)] ?? null) === 0x5B;
+    }
+
     /**
      * modes.md 3.4, two safety nets, both pure functions of (p, q, r, s0, s1):
      *
@@ -258,6 +324,9 @@ final class Spans
             $d = $edit->end - $edit->start;
             $r = count($edit->replacement);
             if ($mode === 'markdown' && self::createsEscape($cp, $p, $q, $edit->replacement)) {
+                return false;
+            }
+            if ($mode === 'markdown' && self::createsBracketShape($cp, $p, $q, $edit->replacement)) {
                 return false;
             }
             if (
