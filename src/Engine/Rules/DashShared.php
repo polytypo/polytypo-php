@@ -223,7 +223,7 @@ final class DashShared
     /** The target dash glyph for a style value. */
     public static function dashCodePoint(string $style): int
     {
-        if ($style === 'em-tight' || $style === 'em-spaced') {
+        if ($style === 'em-tight' || $style === 'em-spaced' || $style === 'em-paired') {
             return self::EM_DASH;
         }
 
@@ -384,6 +384,17 @@ final class DashShared
      */
     public static function isSpacingTransitionBlocked(array $cp, int $left, int $right): bool
     {
+        return self::isSpacingTransitionBlockedLeft($cp, $left) ||
+            self::isSpacingTransitionBlockedRight($cp, $right);
+    }
+
+    /**
+     * The left half of T1, for a form that inserts a space on one side only (`em-paired`).
+     *
+     * @param int[] $cp
+     */
+    public static function isSpacingTransitionBlockedLeft(array $cp, int $left): bool
+    {
         $n = count($cp);
 
         // Spec 1.3.0, position p1: step over a CLOSED-SYMBOL between the token and the run.
@@ -392,12 +403,6 @@ final class DashShared
             && self::isDigit($cp[$left - 1])
         ) {
             $left--;
-        }
-        if (
-            $right >= 0 && $right < $n && self::isClosedUpSymbol($cp[$right])
-            && $right + 1 < $n && self::isDigit($cp[$right + 1])
-        ) {
-            $right++;
         }
 
         if ($left >= 0 && $left < $n && self::isDigit($cp[$left])) {
@@ -415,6 +420,25 @@ final class DashShared
             if (($one === self::SPACE || self::isNoBreakSpace($one)) && self::isDashUnion($two)) {
                 return true;
             }
+        }
+
+        return false;
+    }
+
+    /**
+     * The right half of T1; see isSpacingTransitionBlockedLeft().
+     *
+     * @param int[] $cp
+     */
+    public static function isSpacingTransitionBlockedRight(array $cp, int $right): bool
+    {
+        $n = count($cp);
+
+        if (
+            $right >= 0 && $right < $n && self::isClosedUpSymbol($cp[$right])
+            && $right + 1 < $n && self::isDigit($cp[$right + 1])
+        ) {
+            $right++;
         }
 
         if ($right >= 0 && $right < $n && self::isDigit($cp[$right])) {

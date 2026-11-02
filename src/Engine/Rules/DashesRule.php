@@ -60,7 +60,7 @@ final class DashesRule
      *
      * @param int[] $cp
      */
-    private static function isRomanFlanked(array $cp, int $left, int $right): bool
+    public static function isRomanFlanked(array $cp, int $left, int $right): bool
     {
         $n = count($cp);
 
@@ -96,6 +96,9 @@ final class DashesRule
     {
         $edits = [];
         $style = $localeData['dash']['parenthetical'];
+        if ($style === 'em-paired') {
+            return DashesPaired::scan($cp);
+        }
 
         foreach (DashShared::findTokens($cp) as $token) {
             // A digit-flanked token is `ranges`' territory, never `dashes`' -- declined
