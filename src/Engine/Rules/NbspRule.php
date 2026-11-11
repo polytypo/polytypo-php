@@ -187,6 +187,27 @@ final class NbspRule
     }
 
     /**
+     * nbsp.md 3.7: the three unit lists merged into one, longest first, so the longest entry wins
+     * across all of them. An entry is in at most one list (validate-spec enforces it), so equal
+     * lengths never compete.
+     *
+     * @param array<string, mixed> $data
+     * @return array<int, array{w: int[], kind: string}>
+     */
+    private static function prepareUnits(array $data): array
+    {
+        $out = [];
+        foreach ([['beforeUnits', 'before'], ['spacedUnits', 'spaced'], ['closedUnits', 'closed']] as [$field, $kind]) {
+            foreach ($data[$field] as $entry) {
+                $out[] = ['w' => array_map(mb_ord(...), mb_str_split($entry)), 'kind' => $kind];
+            }
+        }
+        usort($out, static fn (array $a, array $b): int => count($b['w']) <=> count($a['w']));
+
+        return $out;
+    }
+
+    /**
      * Resolves the locale's nbsp and quotes fields to code points once. nbsp.md 2 lists the
      * fields; 2.1 explains why the mechanism (U+00A0 vs U+202F, convert-only vs insert) lives
      * here and not in the locale file.
@@ -257,7 +278,7 @@ final class NbspRule
             'narrowBeforePunctuation' => $narrowBeforePunctuation,
             'shortWords' => self::prepareList($data['afterShortWords']),
             'abbreviations' => self::prepareList($data['abbreviations']),
-            'units' => self::prepareList($data['beforeUnits']),
+            'units' => self::prepareUnits($data),
             'beforeNumber' => self::prepareList($data['beforeNumber']),
             'beforeWord' => self::prepareList($data['beforeWord']),
             'symbols' => self::prepareList($data['afterSymbols']),
@@ -573,8 +594,100 @@ final class NbspRule
         }
     }
 
+    /** ranges.md 3.2a CLOSED-SYMBOL, mirrored (this rule does not depend on `ranges`). */
+    private static function isClosedSymbol(int $cp): bool
+    {
+        return $cp === 0x24 || ($cp >= 0xA2 && $cp <= 0xA5) || ($cp >= 0x20A0 && $cp <= 0x20CF) ||
+            $cp === 0x25 || $cp === 0x2030 || $cp === 0x2031 || $cp === 0xB0;
+    }
+
+    /** dashes.md 3.1 DASH and INERT-DASH. */
+    private static function isAnyDash(int $cp): bool
+    {
+        return in_array($cp, [
+            0x2D, 0x2010, 0x2013, 0x2014, 0x2212, 0xAD, 0x2011, 0x2012, 0x2015, 0xFE58, 0xFE63, 0xFF0D,
+        ], true);
+    }
+
+    /** nbsp.md 3.7 step 5.4: the first code point past a run of non-breaking-line spaces and joiners. */
+    private static function nearestBeyond(array $cp, int $from, int $step): int
+    {
+        $i = $from;
+        $n = count($cp);
+        while ($i >= 0 && $i < $n) {
+            $c = $cp[$i];
+            if ($c === 0x2060 || (self::isSpaceLike($c) && !self::isBreak($c))) {
+                $i += $step;
+                continue;
+            }
+
+            return $c;
+        }
+
+        return Sentinels::NONE;
+    }
+
+    /** Start of the number whose last digit is at $end, extended over a decimal or thousands separator (3.7 step 5.1). */
+    private static function numberStart(array $cp, int $end): int
+    {
+        $b = $end;
+        while ($b - 1 >= 0 && self::isDigit($cp[$b - 1])) {
+            $b--;
+        }
+        while ((self::at($cp, $b - 1) === 0x2C || self::at($cp, $b - 1) === self::FULL_STOP) && self::isDigit(self::at($cp, $b - 2))) {
+            $b -= 2;
+            while ($b - 1 >= 0 && self::isDigit($cp[$b - 1])) {
+                $b--;
+            }
+        }
+
+        return $b;
+    }
+
+    /** @param array<string, mixed> $prep */
+    private static function numberStartIsClean(array $cp, array $prep, int $b): bool
+    {
+        $c = self::at($cp, $b - 1);
+        if ($c === Sentinels::NONE || self::isSpaceLike($c) || self::isOpenish($prep, $c) || self::isSentenceDash($c)) {
+            return true;
+        }
+        if (in_array($c, [0x2B, 0xB1, 0xD7, 0x2212, 0x7E, 0x2248, 0x3C, 0x3E, 0x2060], true)) {
+            return true;
+        }
+        if ($c !== 0x2D) {
+            return false;
+        }
+        $before = self::at($cp, $b - 2);
+
+        return $before === Sentinels::NONE || self::isSpaceLike($before) || self::isOpenish($prep, $before);
+    }
+
+    /** nbsp.md 3.7 step 5.5: DIGIT [space] MUL-LETTER [space] immediately before the number start $b. */
+    private static function isRightOperandOfMultiplication(array $cp, int $b): bool
+    {
+        $i = $b - 1;
+        if (self::isMulSpace(self::at($cp, $i))) {
+            $i--;
+        }
+        if (!in_array(self::at($cp, $i), [0x78, 0x58, 0x445, 0x425], true)) {
+            return false;
+        }
+        $i--;
+        if (self::isMulSpace(self::at($cp, $i))) {
+            $i--;
+        }
+
+        return self::isDigit(self::at($cp, $i));
+    }
+
+    private static function isMulSpace(int $c): bool
+    {
+        return $c === self::SPACE || $c === self::NBSP || $c === self::NNBSP;
+    }
+
     /**
-     * N5 -- nbsp.md 3.7 beforeUnits. Converts an existing space; never inserts one (7.2).
+     * N5 -- nbsp.md 3.7. beforeUnits converts an existing space, spacedUnits converts and inserts,
+     * closedUnits deletes. The longest entry across the three lists wins at a.
      *
      * @param array<string, mixed> $prep
      * @param array<int, Edit|null> $claims
@@ -587,38 +700,104 @@ final class NbspRule
 
         $n = count($cp);
         for ($a = 0; $a < $n; $a++) {
-            $w = self::longestMatch($prep['units'], $cp, $a, self::matchExact(...));
-            if ($w === null) {
+            $entry = null;
+            foreach ($prep['units'] as $candidate) {
+                if (self::matchExact($cp, $a, $candidate['w'])) {
+                    $entry = $candidate;
+                    break;
+                }
+            }
+            if ($entry === null) {
                 continue;
             }
 
+            $w = $entry['w'];
             $k = count($w);
             if (self::isAlnum(self::at($cp, $a + $k))) {
                 continue;
             }
-
             $left = self::at($cp, $a - 1);
-            if ($left === self::NBSP) {
-                continue; // already correct
-            }
-            if ($left !== self::SPACE) {
+
+            if ($entry['kind'] === 'before') {
+                if ($left !== self::SPACE || !self::isDigit(self::at($cp, $a - 2))) {
+                    continue;
+                }
+                $b = $a - 2;
+                while ($b - 1 >= 0 && self::isDigit($cp[$b - 1])) {
+                    $b--;
+                }
+                // The letter guard: "H2 O", "A4", "MP3" are not measurements.
+                if (UnicodeUtil::isLetter(self::at($cp, $b - 1))) {
+                    continue;
+                }
+                self::claimConversion($claims, $a - 1, self::NBSP);
                 continue;
             }
 
-            if (!self::isDigit(self::at($cp, $a - 2))) {
+            $isClosed = $entry['kind'] === 'closed';
+            $isSeparated = $left === self::SPACE || $left === self::NBSP || ($isClosed && $left === self::NNBSP);
+            $isTouching = self::isDigit($left);
+            if (!$isSeparated && !($isTouching && !$isClosed)) {
                 continue;
             }
-
-            $b = $a - 2;
+            if (!$isClosed && $left === self::NBSP) {
+                continue;
+            }
+            $end = $isSeparated ? $a - 2 : $a - 1;
+            if (!self::isDigit(self::at($cp, $end))) {
+                continue;
+            }
+            $b = $end;
             while ($b - 1 >= 0 && self::isDigit($cp[$b - 1])) {
                 $b--;
             }
-            // The letter guard: "H2 O", "A4", "MP3" are not measurements.
             if (UnicodeUtil::isLetter(self::at($cp, $b - 1))) {
                 continue;
             }
 
-            self::claimConversion($claims, $a - 1, self::NBSP);
+            // Converting an existing space keeps beforeUnits' behaviour; the guards below protect
+            // only what N5 would otherwise insert or delete (3.7 step 5).
+            if (!$isClosed && $isSeparated) {
+                if ($left === self::SPACE) {
+                    self::claimConversion($claims, $a - 1, self::NBSP);
+                }
+                continue;
+            }
+            $start = self::numberStart($cp, $end);
+            if (!self::numberStartIsClean($cp, $prep, $start)) {
+                continue;
+            }
+            // A closed-up symbol beside a dash decides whether `ranges` and `dashes` read the token
+            // as a range; editing the space after both rules ran would change that verdict on the
+            // next pass (3.7 step 5.3).
+            if (
+                self::isClosedSymbol($w[0]) &&
+                (self::isAnyDash(self::nearestBeyond($cp, $start - 1, -1)) ||
+                    self::isAnyDash(self::nearestBeyond($cp, $a + $k, 1)))
+            ) {
+                continue;
+            }
+            if (!$isClosed && self::isRightOperandOfMultiplication($cp, $start)) {
+                continue;
+            }
+            $next = self::at($cp, $a + $k);
+            if ($next === 0x2D || $next === 0x2011 || $next === 0x5F) {
+                continue;
+            }
+            if ($next === self::FULL_STOP && self::isAlnum(self::at($cp, $a + $k + 1))) {
+                continue;
+            }
+
+            if ($isClosed) {
+                if ($next === self::SPACE && self::isDigit(self::at($cp, $a + $k + 1))) {
+                    continue;
+                }
+                if ($claims[$a - 1] === null) {
+                    $claims[$a - 1] = new Edit($a - 1, $a, [], 'nbsp');
+                }
+            } else {
+                self::claimInsertion($claims, $a, self::NBSP);
+            }
         }
     }
 
