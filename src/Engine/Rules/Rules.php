@@ -38,6 +38,7 @@ final class Rules
         Registry::register('dashes', static fn (array $cp, array $ld, $ctx): array => DashesRule::scan($cp, $ld, $ctx));
         Registry::register('hyphen', static fn (array $cp, array $ld, $ctx): array => HyphenRule::scan($cp, $ld, $ctx));
         Registry::register('quotes', static fn (array $cp, array $ld, $ctx): array => QuotesRule::scan($cp, $ld, $ctx));
+        Registry::register('quote-punctuation', static fn (array $cp, array $ld, $ctx): array => QuotePunctuationRule::scan($cp, $ld, $ctx));
         Registry::register('apostrophe', static fn (array $cp, array $ld, $ctx): array => ApostropheRule::scan($cp, $ld, $ctx));
         Registry::register('symbols', static fn (array $cp, array $ld, $ctx): array => SymbolsRule::scan($cp, $ld, $ctx));
         Registry::register('nbsp', static fn (array $cp, array $ld, $ctx): array => NbspRule::scan($cp, $ld, $ctx));

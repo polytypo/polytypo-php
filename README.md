@@ -63,6 +63,15 @@ accepts PHP named arguments:
 Polytypo::transform($input, 'fr', mode: 'html', rules: ['ranges' => true]);
 ```
 
+`ranges` and `quote-punctuation` are off by default. `quote-punctuation` moves a comma or full stop
+from after a closing quotation mark to before it, in `en-US` only; every other locale leaves
+punctuation where it was typed:
+
+```php
+Polytypo::transform('She said "hello", then left.', 'en-US', rules: ['quote-punctuation' => true]);
+// => "She said “hello,” then left."
+```
+
 `yaml` mode is the one that asks something of you, and it asks for a reason. YAML is a data format
 with prose in some of it, so you name the keys whose values are prose; there is no default and no
 guess:

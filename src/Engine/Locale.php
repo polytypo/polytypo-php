@@ -74,10 +74,29 @@ final class Locale
     public static function localeDataRaw(string $localeId): array
     {
         if (!isset(self::$localeDataRaw[$localeId])) {
-            self::$localeDataRaw[$localeId] = self::readJsonFile(self::dataDir() . "/locales/{$localeId}.json");
+            $data = self::readJsonFile(self::dataDir() . "/locales/{$localeId}.json");
+            self::validatePunctuationPlacement($data, $localeId);
+            self::$localeDataRaw[$localeId] = $data;
         }
 
         return self::$localeDataRaw[$localeId];
+    }
+
+    /**
+     * quote-punctuation.md 2: `quotes.punctuationPlacement` is required in every locale file and is
+     * "inside" or "none". A missing or unknown value fails fast rather than silently declining.
+     *
+     * @param array<string, mixed> $data
+     */
+    public static function validatePunctuationPlacement(array $data, string $localeId): void
+    {
+        $value = is_array($data['quotes'] ?? null) ? ($data['quotes']['punctuationPlacement'] ?? null) : null;
+        if ($value !== 'inside' && $value !== 'none') {
+            throw new PolytypoException(
+                PolytypoException::CODE_MALFORMED_LOCALE_DATA,
+                "locale \"{$localeId}\": quotes.punctuationPlacement must be \"inside\" or \"none\"",
+            );
+        }
     }
 
     private static function isLowerAscii(int $cp): bool

@@ -67,7 +67,7 @@ final class Registry
     }
 
     /**
-     * Rule id -> default enabled/disabled (only "ranges" defaults to false). order.json's
+     * Rule id -> default enabled/disabled ("ranges" and "quote-punctuation" default to false). order.json's
      * "default" field is the string "on"/"off", not a JSON boolean.
      *
      * @return array<string, bool>

@@ -20,7 +20,7 @@ use Polytypo\PolytypoException;
 final class AnalyzeTest extends TestCase
 {
     private const RULE_ORDER = [
-        'spaces', 'ellipsis', 'ranges', 'dashes', 'hyphen', 'quotes', 'apostrophe', 'symbols', 'nbsp',
+        'spaces', 'ellipsis', 'ranges', 'dashes', 'hyphen', 'quotes', 'quote-punctuation', 'apostrophe', 'symbols', 'nbsp',
     ];
 
     /**
