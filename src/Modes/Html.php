@@ -305,6 +305,23 @@ final class Html
             return;
         }
 
+        // A whitespace-only text node holding a line break is not a span, so the gap carries the
+        // raw line break and the line marker applies (modes.md 3.6).
+        $hasLineBreak = false;
+        $isWhitespaceOnly = true;
+        for ($k = $from; $k < $to; $k++) {
+            $c = $chars[$k];
+            if ($c === "\n" || $c === "\f" || $c === "\r") {
+                $hasLineBreak = true;
+            } elseif ($c !== "\t" && $c !== ' ') {
+                $isWhitespaceOnly = false;
+                break;
+            }
+        }
+        if ($isWhitespaceOnly && $hasLineBreak) {
+            return;
+        }
+
         $slice = array_slice($chars, $from, $to - $from);
         $refs = self::findEntityRefs($slice);
         $cursor = 0;
