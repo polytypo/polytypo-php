@@ -24,7 +24,7 @@ final class Html
      * decision. svg/math are here because in MathML a quotation mark, a hyphen and a prime are
      * operators and identifiers -- substituting a curly glyph changes what the expression means.
      */
-    private const SKIPPED_ELEMENTS = ['code', 'pre', 'kbd', 'samp', 'var', 'script', 'style', 'textarea', 'svg', 'math'];
+    public const SKIPPED_ELEMENTS = ['code', 'pre', 'kbd', 'samp', 'var', 'script', 'style', 'textarea', 'svg', 'math'];
 
     /**
      * HTML5 void elements: never pushed onto the element stack, since an author is not required

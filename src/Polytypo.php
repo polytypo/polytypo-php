@@ -23,6 +23,12 @@ use Polytypo\Modes\Runner;
  */
 final class Polytypo
 {
+    /**
+     * The elements whose whole subtree `html` mode leaves alone, as lowercase names in spec order
+     * (modes.md 3.6). The mode's own membership test reads this same constant.
+     */
+    public const SKIPPED_ELEMENTS = Html::SKIPPED_ELEMENTS;
+
     private function __construct()
     {
     }
