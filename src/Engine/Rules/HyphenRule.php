@@ -144,18 +144,46 @@ final class HyphenRule
     }
 
     /**
+     * Buckets the patterns by the code points matchesAt lets a match start with: the pattern's
+     * first code point, its simple uppercase mapping when that is a letter, and both hyphenish
+     * code points when the pattern starts with U+002D. Pattern order is kept inside a bucket, so
+     * select's first-seen tie-break is unchanged.
+     *
+     * @param array{cps: int[], kind: int}[] $patterns
+     * @return array<int, array{cps: int[], kind: int}[]>
+     */
+    private static function indexPatterns(array $patterns): array
+    {
+        $index = [];
+        foreach ($patterns as $pattern) {
+            $p = $pattern['cps'][0];
+            $keys = [$p];
+            if ($p === self::HYPHEN_MINUS) {
+                $keys[] = self::NON_BREAKING_HYPHEN;
+            } elseif (UnicodeUtil::isLetter($p)) {
+                $keys[] = UnicodeUtil::simpleUppercase($p);
+            }
+            foreach (array_unique($keys) as $key) {
+                $index[$key][] = $pattern;
+            }
+        }
+
+        return $index;
+    }
+
+    /**
      * 3.4 -- the longest entry that matches at `a`, ties broken compounds, prefixes, suffixes.
      * `patterns` is built compounds-first, prefixes-second, suffixes-third, so keeping the
      * first-seen entry on a length tie already yields that order.
      *
      * @param int[] $cp
-     * @param array{cps: int[], kind: int}[] $patterns
+     * @param array<int, array{cps: int[], kind: int}[]> $index patterns bucketed by indexPatterns
      * @return array{cps: int[], kind: int}|null
      */
-    private static function select(array $cp, int $a, array $patterns): ?array
+    private static function select(array $cp, int $a, array $index): ?array
     {
         $best = null;
-        foreach ($patterns as $pattern) {
+        foreach ($index[$cp[$a]] ?? [] as $pattern) {
             if (!self::matchesAt($cp, $a, $pattern['cps'])) {
                 continue;
             }
@@ -227,11 +255,12 @@ final class HyphenRule
         $patterns = self::preparePatterns($prefixes, 'prefixes', self::PREFIX, $patterns);
         $patterns = self::preparePatterns($suffixes, 'suffixes', self::SUFFIX, $patterns);
 
+        $index = self::indexPatterns($patterns);
         $n = count($cp);
         $edits = [];
         $a = 0;
         while ($a < $n) {
-            $selected = self::select($cp, $a, $patterns);
+            $selected = self::select($cp, $a, $index);
             if ($selected === null) {
                 $a++;
                 continue;

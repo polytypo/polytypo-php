@@ -208,6 +208,23 @@ final class NbspRule
     }
 
     /**
+     * Buckets the longest-first unit list by first code point, keeping the list order inside each
+     * bucket (indexPatterns' reasoning, for entries that carry a kind).
+     *
+     * @param array<int, array{w: int[], kind: string}> $units
+     * @return array<int, array<int, array{w: int[], kind: string}>>
+     */
+    private static function indexUnits(array $units): array
+    {
+        $index = [];
+        foreach ($units as $unit) {
+            $index[$unit['w'][0]][] = $unit;
+        }
+
+        return $index;
+    }
+
+    /**
      * Resolves the locale's nbsp and quotes fields to code points once. nbsp.md 2 lists the
      * fields; 2.1 explains why the mechanism (U+00A0 vs U+202F, convert-only vs insert) lives
      * here and not in the locale file.
@@ -276,12 +293,18 @@ final class NbspRule
         return [
             'beforePunctuation' => $beforePunctuation,
             'narrowBeforePunctuation' => $narrowBeforePunctuation,
-            'shortWords' => self::prepareList($data['afterShortWords']),
-            'abbreviations' => self::prepareList($data['abbreviations']),
-            'units' => self::prepareUnits($data),
-            'beforeNumber' => self::prepareList($data['beforeNumber']),
-            'beforeWord' => self::prepareList($data['beforeWord']),
-            'symbols' => self::prepareList($data['afterSymbols']),
+            'shortWords' => $shortWords = self::prepareList($data['afterShortWords']),
+            'shortWordsIndex' => self::indexPatterns($shortWords, 'lenient'),
+            'abbreviations' => $abbreviations = self::prepareList($data['abbreviations']),
+            'abbreviationsIndex' => self::indexPatterns($abbreviations, 'space'),
+            'units' => $units = self::prepareUnits($data),
+            'unitsIndex' => self::indexUnits($units),
+            'beforeNumber' => $beforeNumber = self::prepareList($data['beforeNumber']),
+            'beforeNumberIndex' => self::indexPatterns($beforeNumber, 'exact'),
+            'beforeWord' => $beforeWord = self::prepareList($data['beforeWord']),
+            'beforeWordIndex' => self::indexPatterns($beforeWord, 'exact'),
+            'symbols' => $symbols = self::prepareList($data['afterSymbols']),
+            'symbolsIndex' => self::indexPatterns($symbols, 'exact'),
             'initialBinding' => $data['initialBinding'],
             'opens' => $opens,
             'closes' => $closes,
@@ -412,16 +435,50 @@ final class NbspRule
     }
 
     /**
-     * Returns the first pattern (from a longest-first-sorted list) that matches at a,
-     * implementing "longest match wins at a given a, with no backtracking" (nbsp.md 3.5) for
-     * every list-driven sub-rule: N3, N4, N5, N6, N9, N10.
+     * Buckets a longest-first pattern list by the code points a match can start with, keeping the
+     * list order inside each bucket, so the first match in a bucket is the first match in the
+     * whole list. $mode is the matcher the list is read with: 'exact' starts with the pattern's
+     * first code point, 'lenient' (matchFirstCharLenient) also with its simple uppercase mapping,
+     * 'space' (matchSpaceLenient) additionally with U+00A0 / U+202F when the pattern starts with
+     * a space.
      *
      * @param array<int, int[]> $patterns
+     * @return array<int, array<int, int[]>>
+     */
+    private static function indexPatterns(array $patterns, string $mode): array
+    {
+        $index = [];
+        foreach ($patterns as $w) {
+            if ($w === []) {
+                continue;
+            }
+            $first = $w[0];
+            $keys = [$first];
+            if ($mode === 'lenient') {
+                $keys[] = UnicodeUtil::simpleUppercase($first);
+            } elseif ($mode === 'space' && $first === self::SPACE) {
+                $keys[] = self::NBSP;
+                $keys[] = self::NNBSP;
+            }
+            foreach (array_unique($keys) as $key) {
+                $index[$key][] = $w;
+            }
+        }
+
+        return $index;
+    }
+
+    /**
+     * Returns the first pattern (from a longest-first-sorted list, here bucketed by indexPatterns)
+     * that matches at a, implementing "longest match wins at a given a, with no backtracking"
+     * (nbsp.md 3.5) for every list-driven sub-rule: N3, N4, N6, N9, N10.
+     *
+     * @param array<int, array<int, int[]>> $index
      * @return int[]|null
      */
-    private static function longestMatch(array $patterns, array $cp, int $a, callable $matcher): ?array
+    private static function longestMatch(array $index, array $cp, int $a, callable $matcher): ?array
     {
-        foreach ($patterns as $w) {
+        foreach ($index[$cp[$a]] ?? [] as $w) {
             if ($matcher($cp, $a, $w)) {
                 return $w;
             }
@@ -526,7 +583,7 @@ final class NbspRule
 
         $n = count($cp);
         for ($a = 0; $a < $n; $a++) {
-            $w = self::longestMatch($prep['shortWords'], $cp, $a, self::matchFirstCharLenient(...));
+            $w = self::longestMatch($prep['shortWordsIndex'], $cp, $a, self::matchFirstCharLenient(...));
             if ($w === null) {
                 continue;
             }
@@ -571,7 +628,7 @@ final class NbspRule
 
         $n = count($cp);
         for ($a = 0; $a < $n; $a++) {
-            $w = self::longestMatch($prep['abbreviations'], $cp, $a, self::matchSpaceLenient(...));
+            $w = self::longestMatch($prep['abbreviationsIndex'], $cp, $a, self::matchSpaceLenient(...));
             if ($w === null) {
                 continue;
             }
@@ -701,7 +758,7 @@ final class NbspRule
         $n = count($cp);
         for ($a = 0; $a < $n; $a++) {
             $entry = null;
-            foreach ($prep['units'] as $candidate) {
+            foreach ($prep['unitsIndex'][$cp[$a]] ?? [] as $candidate) {
                 if (self::matchExact($cp, $a, $candidate['w'])) {
                     $entry = $candidate;
                     break;
@@ -815,7 +872,7 @@ final class NbspRule
 
         $n = count($cp);
         for ($a = 0; $a < $n; $a++) {
-            $w = self::longestMatch($prep['symbols'], $cp, $a, self::matchExact(...));
+            $w = self::longestMatch($prep['symbolsIndex'], $cp, $a, self::matchExact(...));
             if ($w === null) {
                 continue;
             }
@@ -1019,22 +1076,22 @@ final class NbspRule
      *
      * @param array<string, mixed> $prep
      * @param array<int, Edit|null> $claims
-     * @param array<int, int[]> $patterns
+     * @param string $listKey 'beforeNumber' or 'beforeWord': the prepared list and its index
      */
     private static function forwardBindingSubRule(
         array $cp,
         array $prep,
         array &$claims,
-        array $patterns,
+        string $listKey,
         bool $wantsDigit,
     ): void {
-        if ($patterns === []) {
+        if ($prep[$listKey] === []) {
             return;
         }
 
         $n = count($cp);
         for ($a = 0; $a < $n; $a++) {
-            $w = self::longestMatch($patterns, $cp, $a, self::matchExact(...));
+            $w = self::longestMatch($prep[$listKey . 'Index'], $cp, $a, self::matchExact(...));
             if ($w === null) {
                 continue;
             }
@@ -1123,8 +1180,8 @@ final class NbspRule
         self::symbolsSubRule($cp, $prep, $claims);                                                                // N6
         self::initialsSubRule($cp, $prep, $claims);                                                               // N7
         self::quotesSubRule($cp, $prep, $claims);                                                                 // N8
-        self::forwardBindingSubRule($cp, $prep, $claims, $prep['beforeNumber'], true);                            // N9
-        self::forwardBindingSubRule($cp, $prep, $claims, $prep['beforeWord'], false);                             // N10
+        self::forwardBindingSubRule($cp, $prep, $claims, 'beforeNumber', true);                            // N9
+        self::forwardBindingSubRule($cp, $prep, $claims, 'beforeWord', false);                             // N10
 
         $edits = [];
         foreach ($claims as $claim) {
