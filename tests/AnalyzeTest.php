@@ -133,13 +133,13 @@ final class AnalyzeTest extends TestCase
         $this->assertContains('ellipsis', $ids);
     }
 
-    public function testNeverReportsRangesUnlessTurnedOn(): void
+    public function testNeverReportsRangesWhenTurnedOff(): void
     {
         $input = 'chapters 3-5';
-        $this->assertNotContains('ranges', self::ruleIds(Polytypo::analyze($input, 'en-US')));
-        $this->assertContains(
+        $this->assertContains('ranges', self::ruleIds(Polytypo::analyze($input, 'en-US')));
+        $this->assertNotContains(
             'ranges',
-            self::ruleIds(Polytypo::analyze($input, 'en-US', rules: ['ranges' => true])),
+            self::ruleIds(Polytypo::analyze($input, 'en-US', rules: ['ranges' => false])),
         );
     }
 

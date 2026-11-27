@@ -21,7 +21,7 @@ final class Pipeline
 
     /**
      * Defaults + opt-out overrides. $rulesOption is opt-out only (ARCHITECTURE.md section 7): it
-     * may only disable a default-on rule or enable a default-off rule ("ranges", "quote-punctuation"). An
+     * may only disable a default-on rule or enable a default-off rule ("quote-punctuation"). An
      * unknown key raises POLYTYPO_UNKNOWN_RULE.
      *
      * @param array<string, bool>|null $rulesOption

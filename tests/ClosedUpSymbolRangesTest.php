@@ -103,7 +103,7 @@ final class ClosedUpSymbolRangesTest extends TestCase
 
         // The accepted cost, with default options, and its limit: only a MATCHED symbol moves a
         // token between rules.
-        $this->assertSame('$15 - $20', Polytypo::transform('$15 - $20', 'en-US'));
+        $this->assertSame("\$15\u{2060}–\u{2060}\$20", Polytypo::transform('$15 - $20', 'en-US'));
         $this->assertSame('$15—€20', Polytypo::transform('$15 - €20', 'en-US'));
     }
 

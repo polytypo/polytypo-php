@@ -64,10 +64,10 @@ fallback to English. `$mode` defaults to `"text"` if omitted. Every parameter af
 accepts PHP named arguments:
 
 ```php
-Polytypo::transform($input, 'fr', mode: 'html', rules: ['ranges' => true]);
+Polytypo::transform($input, 'fr', mode: 'html', rules: ['ranges' => false]);
 ```
 
-`ranges` and `quote-punctuation` are off by default. `quote-punctuation` moves a comma or full stop
+`quote-punctuation` is off by default; `ranges` is on. `quote-punctuation` moves a comma or full stop
 from after a closing quotation mark to before it, in `en-US` only; every other locale leaves
 punctuation where it was typed:
 

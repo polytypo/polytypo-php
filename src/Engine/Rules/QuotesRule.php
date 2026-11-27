@@ -53,6 +53,9 @@ final class QuotesRule
     private const LS = 0x2028;
     private const PS = 0x2029;
 
+    /** GATE_ROUNDS_MAX (quotes.md 3.5), part of the contract. */
+    private const GATE_ROUNDS_MAX = 8;
+
     private const PAREN_OPEN = 0x28;
     private const SQUARE_OPEN = 0x5B;
     private const CURLY_OPEN = 0x7B;
@@ -129,7 +132,8 @@ final class QuotesRule
      * OPENISH. QUOTEMARK is a member of both OPENISH and CLOSEISH, and is exempt from canOpen's
      * closeish rejection -- Lemma A's entire mechanism (quotes.md 5) and the reason a candidate's
      * verdict never depends on which quote glyph its neighbour is. Do not "simplify" this back to
-     * per-glyph lists. Sentinels::MARKER is a member too (modes.md 3.3).
+     * per-glyph lists. Sentinels::MARKER is a member too (modes.md 3.3), and so are U+00BF and U+00A1
+     * for every locale (spec 1.33.0).
      */
     private static function isOpenish(int $cp): bool
     {
@@ -138,6 +142,7 @@ final class QuotesRule
         }
 
         return $cp === self::PAREN_OPEN || $cp === self::SQUARE_OPEN || $cp === self::CURLY_OPEN
+            || $cp === 0xBF || $cp === 0xA1
             || self::isQuoteMark($cp);
     }
 
@@ -324,12 +329,86 @@ final class QuotesRule
                 $canClose = false;
             }
 
+            // Quoted-lone-mark veto (quotes.md 3.2, spec 1.33.0): '"' and "'" are a mention of the
+            // character, not a quotation.
+            if (self::loneMarkAround($cp, $i, $skipSets, true) || self::loneMarkAround($cp, $i, $skipSets, false)) {
+                $canOpen = false;
+                $canClose = false;
+            }
+
             if ($canOpen || $canClose) {
                 $candidates[] = ['index' => $i, 'wide' => self::isWide($g), 'canOpen' => $canOpen, 'canClose' => $canClose];
             }
         }
 
         return $candidates;
+    }
+
+    private static function isInlineSpaceAt(array $cp, int $k): bool
+    {
+        return $k >= 0 && $k < count($cp) && QuoteAmbiguity::isInlineSpace($cp[$k]);
+    }
+
+    /**
+     * next (forward) or prev (backward) of quotes.md 3.2's quoted-lone-mark veto: the literal
+     * neighbour, except that a run of INLINE-SPACE is skipped where nbsp can insert one. Returns
+     * -1 when the step leaves the array or would cross any other space.
+     *
+     * @param int[] $cp
+     * @param array{spaceRight: array<int, true>, spaceLeft: array<int, true>} $skipSets
+     */
+    private static function markStep(array $cp, int $a, array $skipSets, bool $forward): int
+    {
+        $d = $forward ? 1 : -1;
+        $near = $forward ? $skipSets['spaceRight'] : $skipSets['spaceLeft'];
+        $far = $forward ? $skipSets['spaceLeft'] : $skipSets['spaceRight'];
+        $n = count($cp);
+
+        $k = $a + $d;
+        if (isset($near[$cp[$a]])) {
+            while (self::isInlineSpaceAt($cp, $k)) {
+                $k += $d;
+            }
+        } elseif (self::isInlineSpaceAt($cp, $k)) {
+            $k2 = $k;
+            while (self::isInlineSpaceAt($cp, $k2)) {
+                $k2 += $d;
+            }
+            if ($k2 < 0 || $k2 >= $n || !isset($far[$cp[$k2]])) {
+                return -1;
+            }
+            $k = $k2;
+        }
+
+        return $k >= 0 && $k < $n ? $k : -1;
+    }
+
+    private static function isTypewriterIdentity(int $v): bool
+    {
+        return $v === 0x22 || $v === 0x2019;
+    }
+
+    /**
+     * @param int[] $cp
+     * @param array{spaceRight: array<int, true>, spaceLeft: array<int, true>} $skipSets
+     */
+    private static function loneMarkAround(array $cp, int $i, array $skipSets, bool $forward): bool
+    {
+        $gV1 = self::v1Identity($cp[$i]);
+        if (!self::isTypewriterIdentity($gV1)) {
+            return false;
+        }
+        $m = self::markStep($cp, $i, $skipSets, $forward);
+        if ($m < 0) {
+            return false;
+        }
+        $mV1 = self::v1Identity($cp[$m]);
+        if (!self::isTypewriterIdentity($mV1) || $mV1 === $gV1) {
+            return false;
+        }
+        $o = self::markStep($cp, $m, $skipSets, $forward);
+
+        return $o >= 0 && self::v1Identity($cp[$o]) === $gV1;
     }
 
     /** quotes.md 3.3 vacuous(a, b). Vacuously true when b = a + 1. */
@@ -515,12 +594,9 @@ final class QuotesRule
     private static function certify(array $cp, array $initial, array $quotesData, array $skipSets, array $idioms, array $clitics): array
     {
         $accepted = array_values($initial);
-        // Each round accepts or strictly shrinks `accepted`; it is finite and the empty set
-        // accepts unconditionally, so the loop runs at most |A0| + 1 times (quotes.md 3.5). The
-        // bound below is a defensive safety net, not a normative one.
-        $maxRounds = count($initial) + 2;
-
-        for ($round = 0; $round <= $maxRounds; $round++) {
+        // quotes.md 3.5: at most GATE_ROUNDS_MAX rounds; a set still not accepted after the last
+        // round is replaced by the empty set.
+        for ($round = 1; $round <= self::GATE_ROUNDS_MAX; $round++) {
             if ($accepted === []) {
                 return $accepted;
             }
@@ -567,7 +643,6 @@ final class QuotesRule
             }
         }
 
-        // Unreachable given the termination argument; declines everything rather than looping.
         return [];
     }
 
