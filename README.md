@@ -172,6 +172,18 @@ canonical repository for the exact, current claim.
 memoized-once, never-mutated spec data: safe to call from any context with no external
 synchronization.
 
+## Show that you use polytypo
+
+If polytypo typesets your text, you can say so with a badge. Add two lines to your footer or credits:
+
+```html
+<script async src="https://polytypo.dev/badge.js"></script>
+<span data-polytypo-lang="en" data-polytypo-theme="light"></span>
+```
+
+`data-polytypo-lang` takes the language code of the caption and `data-polytypo-theme` is `light` or
+`dark`. The picker at [polytypo.dev](https://polytypo.dev/#badge) shows every caption and theme.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
